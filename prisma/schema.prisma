@@ -1,0 +1,28 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Receipt {
+  id              Int    @id @default(autoincrement())
+  sourceId        Int    @default(0)
+  date            String
+  merchantName    String
+  description     String @default("")
+  amount          Float  @default(0)
+  imageUri        String @default("")
+  rawOcrText      String @default("")
+  syncedAt        String
+  deviceCreatedAt String @default("")
+}
+
+model SyncLog {
+  id            Int    @id @default(autoincrement())
+  syncedAt      String
+  count         Int
+  clientVersion String @default("")
+}
