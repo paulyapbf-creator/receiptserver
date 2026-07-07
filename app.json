@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "ScanReceipt",
+    "slug": "scanreceipt",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1B5E20"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.scanreceipt.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to scan receipts.",
+        "NSPhotoLibraryUsageDescription": "This app saves receipt photos to your library."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1B5E20"
+      },
+      "package": "com.scanreceipt.app",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ScanReceipt to access your camera to scan receipts."
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "061aec54-422b-4dd6-85d6-8439dbd454c8"
+      }
+    },
+    "owner": "paulyapbf"
+  }
+}
