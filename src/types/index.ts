@@ -18,10 +18,13 @@ export interface SortConfig {
   order: SortOrder;
 }
 
+export type OcrProvider = 'google' | 'claude';
+
 export interface AppSettings {
   hostUrl: string;
   googleVisionApiKey: string;
   claudeApiKey: string;
+  selectedOcrProvider: OcrProvider;
 }
 
 export interface UpdateCheckResult {

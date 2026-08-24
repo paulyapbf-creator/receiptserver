@@ -20,17 +20,18 @@ import {
   useTheme,
   Chip,
   HelperText,
+  ProgressBar,
 } from 'react-native-paper';
 import { getSettings, saveSettings } from '../services/ocr';
 import { exportReceiptsToFile, syncReceiptsToHost } from '../services/sync';
-import { checkForUpdates, openDownloadPage, getCurrentVersion } from '../services/updater';
+import { checkForUpdates, downloadAndInstallUpdate, getCurrentVersion } from '../services/updater';
 import { getReceiptCount } from '../services/database';
-import type { AppSettings, UpdateCheckResult } from '../types';
+import type { AppSettings, OcrProvider, UpdateCheckResult } from '../types';
 
 export default function SettingsScreen() {
   const theme = useTheme();
 
-  const [settings, setSettings] = useState<AppSettings>({ hostUrl: '', googleVisionApiKey: '', claudeApiKey: '' });
+  const [settings, setSettings] = useState<AppSettings>({ hostUrl: '', googleVisionApiKey: '', claudeApiKey: '', selectedOcrProvider: 'google' });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [receiptCount, setReceiptCount] = useState(0);
@@ -39,6 +40,8 @@ export default function SettingsScreen() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateDialogVisible, setUpdateDialogVisible] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadPercent, setDownloadPercent] = useState(0);
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -120,7 +123,8 @@ export default function SettingsScreen() {
       setUpdateResult(result);
       setUpdateDialogVisible(true);
     } catch (err: unknown) {
-      Alert.alert('Update Check Failed', 'Could not check for updates.');
+      setUpdateResult({ hasUpdate: false, currentVersion: '', error: 'Could not reach server. Make sure Host URL is correct and the server is running.' });
+      setUpdateDialogVisible(true);
     } finally {
       setCheckingUpdate(false);
     }
@@ -129,10 +133,16 @@ export default function SettingsScreen() {
   const handleDownloadUpdate = async () => {
     if (!updateResult?.downloadUrl) return;
     setUpdateDialogVisible(false);
+    setDownloading(true);
+    setDownloadPercent(0);
     try {
-      await openDownloadPage(updateResult.downloadUrl);
-    } catch {
-      Alert.alert('Error', 'Could not open download link.');
+      await downloadAndInstallUpdate(updateResult.downloadUrl, setDownloadPercent);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Download failed.';
+      Alert.alert('Update Failed', msg);
+    } finally {
+      setDownloading(false);
+      setDownloadPercent(0);
     }
   };
 
@@ -150,9 +160,10 @@ export default function SettingsScreen() {
           <Divider />
           <View style={styles.sectionContent}>
             <Text variant="bodySmall" style={styles.hint}>
-              Google Vision API is used to extract text from receipt photos (recommended).
-              Get an API key at console.cloud.google.com
+              Enter your API keys below, then select which provider to use for scanning receipts.
             </Text>
+
+            {/* Google Vision */}
             <TextInput
               label="Google Vision API Key"
               value={settings.googleVisionApiKey}
@@ -168,17 +179,15 @@ export default function SettingsScreen() {
               }
               placeholder="AIza..."
             />
-            <Text variant="bodySmall" style={[styles.hint, { marginTop: 12 }]}>
-              Alternatively, use Claude API (Anthropic) as fallback OCR.
-              Get an API key at console.anthropic.com
-            </Text>
+
+            {/* Claude API */}
             <TextInput
-              label="Claude API Key (fallback)"
+              label="Claude API Key"
               value={settings.claudeApiKey}
               onChangeText={v => { setSettings(s => ({ ...s, claudeApiKey: v })); setDirty(true); }}
               mode="outlined"
               secureTextEntry={!showApiKey}
-              style={styles.input}
+              style={[styles.input, { marginTop: 8 }]}
               right={
                 <TextInput.Icon
                   icon={showApiKey ? 'eye-off' : 'eye'}
@@ -187,9 +196,44 @@ export default function SettingsScreen() {
               }
               placeholder="sk-ant-..."
             />
+
+            {/* Provider selector */}
+            <Text variant="bodySmall" style={[styles.hint, { marginTop: 16, marginBottom: 8 }]}>
+              Select OCR provider to use:
+            </Text>
+            <View style={styles.providerRow}>
+              {(['google', 'claude'] as OcrProvider[]).map(provider => {
+                const selected = settings.selectedOcrProvider === provider;
+                const hasKey = provider === 'google' ? !!settings.googleVisionApiKey : !!settings.claudeApiKey;
+                const label = provider === 'google' ? 'Google Vision' : 'Claude (Anthropic)';
+                return (
+                  <Chip
+                    key={provider}
+                    selected={selected}
+                    onPress={() => { setSettings(s => ({ ...s, selectedOcrProvider: provider })); setDirty(true); }}
+                    icon={selected ? 'check-circle' : hasKey ? 'circle-outline' : 'alert-circle-outline'}
+                    style={[styles.providerChip, selected && { backgroundColor: theme.colors.primaryContainer }]}
+                    textStyle={selected ? { color: theme.colors.onPrimaryContainer, fontWeight: 'bold' } : undefined}
+                  >
+                    {label}
+                  </Chip>
+                );
+              })}
+            </View>
+
             {!settings.googleVisionApiKey && !settings.claudeApiKey && (
               <HelperText type="info">
                 Without an API key, you can still add receipts manually.
+              </HelperText>
+            )}
+            {settings.selectedOcrProvider === 'google' && !settings.googleVisionApiKey && (
+              <HelperText type="error">
+                Google Vision is selected but no API key is entered.
+              </HelperText>
+            )}
+            {settings.selectedOcrProvider === 'claude' && !settings.claudeApiKey && (
+              <HelperText type="error">
+                Claude is selected but no API key is entered.
               </HelperText>
             )}
           </View>
@@ -336,7 +380,7 @@ export default function SettingsScreen() {
       <Portal>
         <Dialog visible={updateDialogVisible} onDismiss={() => setUpdateDialogVisible(false)}>
           <Dialog.Title>
-            {updateResult?.hasUpdate ? 'Update Available' : 'Up to Date'}
+            {updateResult?.hasUpdate ? 'Update Available' : updateResult?.error ? 'Check Failed' : 'Up to Date'}
           </Dialog.Title>
           <Dialog.Content>
             {updateResult?.hasUpdate ? (
@@ -367,10 +411,27 @@ export default function SettingsScreen() {
             </Button>
             {updateResult?.hasUpdate && updateResult.downloadUrl ? (
               <Button onPress={handleDownloadUpdate} textColor={theme.colors.primary}>
-                Download
+                Download & Install
               </Button>
             ) : null}
           </Dialog.Actions>
+        </Dialog>
+
+        {/* ─── Download Progress Dialog ────────────────────────────────────────── */}
+        <Dialog visible={downloading} dismissable={false}>
+          <Dialog.Title>Downloading Update...</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
+              {downloadPercent < 100
+                ? `Downloading: ${downloadPercent}%`
+                : 'Installing — follow the on-screen prompt.'}
+            </Text>
+            <ProgressBar
+              progress={downloadPercent / 100}
+              color={theme.colors.primary}
+              style={{ height: 8, borderRadius: 4 }}
+            />
+          </Dialog.Content>
         </Dialog>
       </Portal>
     </View>
@@ -395,6 +456,8 @@ const styles = StyleSheet.create({
   fullButton: { marginTop: 4 },
   versionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   syncMsg: { color: '#555', marginTop: 4 },
+  providerRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  providerChip: { flex: 1 },
   footer: { alignItems: 'center', paddingVertical: 16 },
   footerText: { color: '#999' },
   releaseNotes: { color: '#555', marginTop: 8 },

@@ -6,6 +6,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  ScrollView,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
@@ -13,20 +14,27 @@ import {
   Text,
   ActivityIndicator,
   Button,
-  Surface,
   useTheme,
   Appbar,
 } from 'react-native-paper';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { performOcrOnImage } from '../services/ocr';
-import type { RootStackParamList } from '../types';
+import type { RootStackParamList, ParsedReceiptData } from '../types';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-type ScanState = 'idle' | 'preview' | 'processing' | 'done';
+interface CapturedPhoto {
+  uri: string;
+}
+
+interface OcrResult {
+  savedUri: string;
+  ocrText: string;
+  parsed: Partial<ParsedReceiptData>;
+}
 
 export default function ScanScreen() {
   const theme = useTheme();
@@ -34,102 +42,133 @@ export default function ScanScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
 
-  const [scanState, setScanState] = useState<ScanState>('idle');
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [capturedPhotos, setCapturedPhotos] = useState<CapturedPhoto[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState({ current: 0, total: 0 });
   const [flash, setFlash] = useState<'off' | 'on' | 'auto'>('auto');
-  const [errorMsg, setErrorMsg] = useState('');
+
+  // Queue of OCR results waiting to be reviewed one by one
+  const pendingQueueRef = useRef<OcrResult[]>([]);
+
+  // When screen regains focus (user saved/cancelled a form), navigate to next queued result
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingQueueRef.current.length > 0) {
+        const next = pendingQueueRef.current.shift()!;
+        navigation.navigate('ReceiptForm', {
+          preFilledData: {
+            ...next.parsed,
+            imageUri: next.savedUri,
+            rawOcrText: next.ocrText || undefined,
+          },
+        });
+      }
+    }, [navigation])
+  );
 
   const handleCapture = useCallback(async () => {
     if (!cameraRef.current) return;
-    setScanState('preview');
     try {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.9,
         skipProcessing: false,
       });
-      if (photo) setPhotoUri(photo.uri);
-    } catch (err) {
-      setScanState('idle');
+      if (photo) {
+        setCapturedPhotos(prev => [...prev, { uri: photo.uri }]);
+      }
+    } catch {
       Alert.alert('Error', 'Failed to take picture. Please try again.');
     }
   }, []);
 
-  const handleRetake = () => {
-    setPhotoUri(null);
-    setScanState('idle');
-    setErrorMsg('');
+  const handleRemovePhoto = (index: number) => {
+    setCapturedPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleProcess = useCallback(async () => {
-    if (!photoUri) return;
-    setScanState('processing');
-    setErrorMsg('');
+  const handleClearAll = () => {
+    Alert.alert('Clear All', 'Remove all captured photos?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: () => setCapturedPhotos([]) },
+    ]);
+  };
 
-    try {
-      // Save photo to app storage
-      const fileName = `receipt_${Date.now()}.jpg`;
-      const destUri = FileSystem.documentDirectory + 'receipts/' + fileName;
-      await FileSystem.makeDirectoryAsync(
-        FileSystem.documentDirectory + 'receipts/',
-        { intermediates: true }
-      );
-      await FileSystem.copyAsync({ from: photoUri, to: destUri });
+  const savePhoto = async (uri: string, index: number): Promise<string> => {
+    const fileName = `receipt_${Date.now()}_${index}.jpg`;
+    const destUri = FileSystem.documentDirectory + 'receipts/' + fileName;
+    await FileSystem.makeDirectoryAsync(
+      FileSystem.documentDirectory + 'receipts/',
+      { intermediates: true }
+    );
+    await FileSystem.copyAsync({ from: uri, to: destUri });
+    return destUri;
+  };
 
-      // Perform OCR
-      const { ocrText, parsed } = await performOcrOnImage(destUri);
+  const handleProcessAll = useCallback(async () => {
+    if (capturedPhotos.length === 0) return;
+    setIsProcessing(true);
+    setProcessingProgress({ current: 0, total: capturedPhotos.length });
 
-      setScanState('done');
-      navigation.navigate('ReceiptForm', {
-        preFilledData: {
-          ...parsed,
-          imageUri: destUri,
-          rawOcrText: ocrText,
-        },
-      });
-      // Reset after navigating
-      setTimeout(() => {
-        setPhotoUri(null);
-        setScanState('idle');
-      }, 500);
-    } catch (err: unknown) {
-      setScanState('preview');
-      if (err instanceof Error && err.message === 'NO_API_KEY') {
-        setErrorMsg('Google Vision API key not set. You can enter receipt details manually.');
-        // Navigate to manual entry form
-        Alert.alert(
-          'OCR Not Configured',
-          'No Google Vision API key found. Would you like to enter receipt details manually?',
-          [
-            { text: 'Cancel', style: 'cancel', onPress: handleRetake },
-            {
-              text: 'Manual Entry',
-              onPress: async () => {
-                const fileName = `receipt_${Date.now()}.jpg`;
-                const destUri = FileSystem.documentDirectory + 'receipts/' + fileName;
-                await FileSystem.makeDirectoryAsync(
-                  FileSystem.documentDirectory + 'receipts/',
-                  { intermediates: true }
-                );
-                await FileSystem.copyAsync({ from: photoUri, to: destUri });
-                navigation.navigate('ReceiptForm', {
-                  preFilledData: { imageUri: destUri },
-                });
-                setTimeout(() => {
-                  setPhotoUri(null);
-                  setScanState('idle');
-                }, 500);
-              },
-            },
-          ]
-        );
-      } else if (err instanceof Error && err.message === 'NO_TEXT_DETECTED') {
-        setErrorMsg('No text detected in image. Try with better lighting or a clearer photo.');
-      } else {
-        const msg = err instanceof Error ? err.message : 'OCR failed';
-        setErrorMsg(`Error: ${msg}`);
+    const results: OcrResult[] = [];
+    let noApiKey = false;
+
+    for (let i = 0; i < capturedPhotos.length; i++) {
+      setProcessingProgress({ current: i + 1, total: capturedPhotos.length });
+      try {
+        const savedUri = await savePhoto(capturedPhotos[i].uri, i);
+        const { ocrText, parsed } = await performOcrOnImage(savedUri);
+        results.push({ savedUri, ocrText, parsed });
+      } catch (err: unknown) {
+        if (
+          err instanceof Error &&
+          (err.message === 'NO_API_KEY' ||
+            err.message === 'NO_GOOGLE_API_KEY' ||
+            err.message === 'NO_CLAUDE_API_KEY')
+        ) {
+          noApiKey = true;
+          // Save remaining photos as manual-entry results
+          for (let j = i; j < capturedPhotos.length; j++) {
+            try {
+              const savedUri = await savePhoto(capturedPhotos[j].uri, j);
+              results.push({ savedUri, ocrText: '', parsed: {} });
+            } catch {
+              // skip if save fails
+            }
+          }
+          break;
+        } else {
+          // OCR failed for this photo — skip it but continue
+          const msg = err instanceof Error ? err.message : 'OCR failed';
+          console.warn(`Receipt ${i + 1} OCR failed: ${msg}`);
+        }
       }
     }
-  }, [photoUri, navigation]);
+
+    setIsProcessing(false);
+    setCapturedPhotos([]);
+
+    if (results.length === 0) {
+      Alert.alert('Error', 'Failed to process any receipts.');
+      return;
+    }
+
+    if (noApiKey) {
+      Alert.alert(
+        'OCR Not Configured',
+        `No API key found. ${results.length} photo(s) saved — you can enter details manually.`
+      );
+    }
+
+    // Navigate to first result; queue the rest for sequential review
+    const [first, ...rest] = results;
+    pendingQueueRef.current = rest;
+    navigation.navigate('ReceiptForm', {
+      preFilledData: {
+        ...first.parsed,
+        imageUri: first.savedUri,
+        rawOcrText: first.ocrText || undefined,
+      },
+    });
+  }, [capturedPhotos, navigation]);
 
   const handleManualEntry = () => {
     navigation.navigate('ReceiptForm', {});
@@ -164,66 +203,15 @@ export default function ScanScreen() {
     );
   }
 
-  // ─── Photo Preview ───────────────────────────────────────────────────────────
+  // ─── Processing overlay ──────────────────────────────────────────────────────
 
-  if (photoUri && (scanState === 'preview' || scanState === 'processing')) {
+  if (isProcessing) {
     return (
-      <View style={styles.container}>
-        <Appbar.Header style={styles.appbar}>
-          <Appbar.BackAction onPress={handleRetake} color="white" />
-          <Appbar.Content title="Review Receipt" titleStyle={styles.appbarTitle} />
-        </Appbar.Header>
-
-        <View style={styles.previewContainer}>
-          <Image source={{ uri: photoUri }} style={styles.previewImage} resizeMode="contain" />
-        </View>
-
-        {errorMsg ? (
-          <Surface style={styles.errorBox} elevation={0}>
-            <Text style={styles.errorText}>{errorMsg}</Text>
-          </Surface>
-        ) : null}
-
-        {scanState === 'processing' ? (
-          <View style={styles.processingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={styles.processingText}>Scanning receipt...</Text>
-          </View>
-        ) : (
-          <View style={styles.previewActions}>
-            <Button
-              mode="outlined"
-              onPress={handleRetake}
-              style={styles.retakeButton}
-              icon="camera-retake"
-            >
-              Retake
-            </Button>
-            <Button
-              mode="contained"
-              onPress={handleProcess}
-              style={[styles.processButton, { backgroundColor: theme.colors.primary }]}
-              icon="text-recognition"
-            >
-              Scan Text
-            </Button>
-          </View>
-        )}
-
-        {scanState === 'preview' && (
-          <Button
-            mode="text"
-            onPress={() => {
-              navigation.navigate('ReceiptForm', {
-                preFilledData: { imageUri: photoUri ?? undefined },
-              });
-              setTimeout(() => { setPhotoUri(null); setScanState('idle'); }, 500);
-            }}
-            style={styles.skipButton}
-          >
-            Skip OCR - Enter Manually
-          </Button>
-        )}
+      <View style={[styles.container, styles.processingOverlay]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={styles.processingText}>
+          Scanning receipt {processingProgress.current} of {processingProgress.total}...
+        </Text>
       </View>
     );
   }
@@ -233,7 +221,10 @@ export default function ScanScreen() {
   return (
     <View style={styles.container}>
       <Appbar.Header style={styles.appbar}>
-        <Appbar.Content title="Scan Receipt" titleStyle={styles.appbarTitle} />
+        <Appbar.Content
+          title={capturedPhotos.length > 0 ? `${capturedPhotos.length} receipt${capturedPhotos.length > 1 ? 's' : ''} captured` : 'Scan Receipts'}
+          titleStyle={styles.appbarTitle}
+        />
         <Appbar.Action
           icon={flash === 'on' ? 'flash' : flash === 'off' ? 'flash-off' : 'flash-auto'}
           onPress={() => setFlash(f => f === 'auto' ? 'on' : f === 'on' ? 'off' : 'auto')}
@@ -248,7 +239,6 @@ export default function ScanScreen() {
         facing="back"
         flash={flash}
       >
-        {/* Receipt frame overlay */}
         <View style={styles.overlay}>
           <View style={styles.frameTop} />
           <View style={styles.frameRow}>
@@ -262,17 +252,78 @@ export default function ScanScreen() {
             <View style={styles.frameSide} />
           </View>
           <View style={styles.frameBottom}>
-            <Text style={styles.hint}>Position receipt within the frame</Text>
+            <Text style={styles.hint}>
+              {capturedPhotos.length === 0
+                ? 'Position receipt within the frame'
+                : 'Take more or press Scan All to process'}
+            </Text>
           </View>
         </View>
       </CameraView>
 
+      {/* Thumbnail strip — shown when photos are captured */}
+      {capturedPhotos.length > 0 && (
+        <View style={styles.thumbnailStrip}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.thumbnailScroll}
+          >
+            {capturedPhotos.map((photo, index) => (
+              <View key={index} style={styles.thumbnailWrapper}>
+                <Image source={{ uri: photo.uri }} style={styles.thumbnail} />
+                <TouchableOpacity
+                  style={styles.removeBadge}
+                  onPress={() => handleRemovePhoto(index)}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                >
+                  <Text style={styles.removeBadgeText}>✕</Text>
+                </TouchableOpacity>
+                <View style={styles.indexBadge}>
+                  <Text style={styles.indexBadgeText}>{index + 1}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Capture bar */}
       <View style={styles.captureBar}>
-        <TouchableOpacity style={styles.captureButton} onPress={handleCapture} activeOpacity={0.7}>
-          <View style={styles.captureOuter}>
-            <View style={styles.captureInner} />
+        {capturedPhotos.length > 0 ? (
+          <View style={styles.captureBarRow}>
+            <Button
+              mode="outlined"
+              onPress={handleClearAll}
+              style={styles.clearButton}
+              textColor="white"
+              icon="delete-outline"
+              compact
+            >
+              Clear
+            </Button>
+            <TouchableOpacity style={styles.captureButtonWrap} onPress={handleCapture} activeOpacity={0.7}>
+              <View style={styles.captureOuter}>
+                <View style={styles.captureInner} />
+              </View>
+            </TouchableOpacity>
+            <Button
+              mode="contained"
+              onPress={handleProcessAll}
+              style={[styles.scanAllButton, { backgroundColor: theme.colors.primary }]}
+              icon="text-recognition"
+              compact
+            >
+              Scan All
+            </Button>
           </View>
-        </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.captureButtonWrap} onPress={handleCapture} activeOpacity={0.7}>
+            <View style={styles.captureOuter}>
+              <View style={styles.captureInner} />
+            </View>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -280,6 +331,7 @@ export default function ScanScreen() {
 
 const FRAME_W = SCREEN_WIDTH * 0.85;
 const FRAME_H = FRAME_W * 1.4;
+const THUMB_SIZE = 64;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
@@ -327,13 +379,71 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   hint: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+
+  // Thumbnail strip
+  thumbnailStrip: {
+    backgroundColor: '#111',
+    paddingVertical: 8,
+    height: THUMB_SIZE + 24,
+  },
+  thumbnailScroll: {
+    paddingHorizontal: 12,
+    gap: 8,
+    alignItems: 'center',
+  },
+  thumbnailWrapper: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 6,
+    overflow: 'visible',
+    position: 'relative',
+  },
+  thumbnail: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+  },
+  removeBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#f44336',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  removeBadgeText: { color: 'white', fontSize: 9, fontWeight: 'bold' },
+  indexBadge: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  indexBadgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
+
+  // Capture bar
   captureBar: {
     height: 100,
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  captureButton: { padding: 8 },
+  captureBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  captureButtonWrap: { padding: 8 },
   captureOuter: {
     width: 72,
     height: 72,
@@ -349,31 +459,20 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     backgroundColor: 'white',
   },
+  clearButton: {
+    borderColor: 'rgba(255,255,255,0.4)',
+    minWidth: 80,
+  },
+  scanAllButton: {
+    minWidth: 80,
+  },
 
-  // Preview styles
-  previewContainer: { flex: 1, backgroundColor: '#111' },
-  previewImage: { flex: 1, width: '100%' },
-  previewActions: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    backgroundColor: '#fff',
-  },
-  retakeButton: { flex: 1 },
-  processButton: { flex: 1 },
-  skipButton: { marginBottom: 8 },
-  processingContainer: {
-    padding: 24,
+  // Processing overlay
+  processingOverlay: {
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    gap: 12,
+    backgroundColor: '#000',
+    gap: 16,
   },
-  processingText: { color: '#444', fontSize: 16 },
-  errorBox: {
-    margin: 16,
-    padding: 12,
-    backgroundColor: '#FFEBEE',
-    borderRadius: 8,
-  },
-  errorText: { color: '#C62828', fontSize: 13 },
+  processingText: { color: '#fff', fontSize: 16, textAlign: 'center' },
 });

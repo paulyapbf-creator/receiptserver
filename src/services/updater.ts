@@ -1,4 +1,6 @@
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { getSettings } from './ocr';
 import { compareSemver } from '../utils/receiptParser';
 import type { UpdateCheckResult } from '../types';
@@ -70,6 +72,42 @@ export async function openDownloadPage(downloadUrl: string): Promise<void> {
     await Linking.openURL(downloadUrl);
   } else {
     throw new Error('Cannot open download URL');
+  }
+}
+
+export async function downloadAndInstallUpdate(
+  downloadUrl: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  const localUri = (FileSystem.cacheDirectory ?? '') + 'scanreceipt-update.apk';
+
+  // Delete any previous cached APK
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (info.exists) await FileSystem.deleteAsync(localUri, { idempotent: true });
+
+  const downloadResumable = FileSystem.createDownloadResumable(
+    downloadUrl,
+    localUri,
+    {},
+    ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+      if (totalBytesExpectedToWrite > 0) {
+        onProgress(Math.round((totalBytesWritten / totalBytesExpectedToWrite) * 100));
+      }
+    }
+  );
+
+  const result = await downloadResumable.downloadAsync();
+  if (!result?.uri) throw new Error('Download failed — no file saved.');
+
+  if (Platform.OS === 'android') {
+    const contentUri = await FileSystem.getContentUriAsync(result.uri);
+    await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+      data: contentUri,
+      flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+      type: 'application/vnd.android.package-archive',
+    });
+  } else {
+    await openDownloadPage(downloadUrl);
   }
 }
 

@@ -8,10 +8,10 @@ const SETTINGS_KEY = 'app_settings';
 export async function getSettings() {
   const raw = await AsyncStorage.getItem(SETTINGS_KEY);
   if (raw) return JSON.parse(raw);
-  return { hostUrl: '', googleVisionApiKey: '', claudeApiKey: '' };
+  return { hostUrl: '', googleVisionApiKey: '', claudeApiKey: '', selectedOcrProvider: 'google' };
 }
 
-export async function saveSettings(settings: { hostUrl: string; googleVisionApiKey: string; claudeApiKey: string }) {
+export async function saveSettings(settings: { hostUrl: string; googleVisionApiKey: string; claudeApiKey: string; selectedOcrProvider: string }) {
   await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 }
 
@@ -159,15 +159,13 @@ export async function performOcrOnImage(imageUri: string): Promise<{
 }> {
   const settings = await getSettings();
 
-  if (!settings.googleVisionApiKey && !settings.claudeApiKey) {
-    throw new Error('NO_API_KEY');
-  }
-
   const base64 = await prepareImageForOcr(imageUri);
 
-  if (settings.googleVisionApiKey) {
+  if (settings.selectedOcrProvider === 'google') {
+    if (!settings.googleVisionApiKey) throw new Error('NO_GOOGLE_API_KEY');
     return callGoogleVisionOcr(base64, settings.googleVisionApiKey);
   }
 
+  if (!settings.claudeApiKey) throw new Error('NO_CLAUDE_API_KEY');
   return callClaudeOcr(base64, settings.claudeApiKey);
 }
