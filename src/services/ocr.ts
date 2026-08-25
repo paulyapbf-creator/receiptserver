@@ -8,7 +8,7 @@ const SETTINGS_KEY = 'app_settings';
 export async function getSettings() {
   const raw = await AsyncStorage.getItem(SETTINGS_KEY);
   if (raw) return JSON.parse(raw);
-  return { hostUrl: '', googleVisionApiKey: '', claudeApiKey: '', selectedOcrProvider: 'google' };
+  return { hostUrl: 'https://receiptserver-production.up.railway.app', googleVisionApiKey: '', claudeApiKey: '', selectedOcrProvider: 'google' };
 }
 
 export async function saveSettings(settings: { hostUrl: string; googleVisionApiKey: string; claudeApiKey: string; selectedOcrProvider: string }) {
