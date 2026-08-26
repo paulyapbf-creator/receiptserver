@@ -1,6 +1,6 @@
 {
-  "version": "1.0.2",
-  "releaseNotes": "Batch receipt scanning and pre-configured server URL",
-  "downloadUrl": "https://expo.dev/artifacts/eas/d3UuUD_o3gQd4tALaOSCR_L1gscJaSBeBzYcTW9yUOQ.apk",
+  "version": "1.0.3",
+  "releaseNotes": "Trips feature — group receipts by trip",
+  "downloadUrl": "https://expo.dev/artifacts/eas/EutxXYmcp8brrge9rQ02QrZiZnRfFq7Kpv6seu1pCqc.apk",
   "mandatory": false
 }
