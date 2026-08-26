@@ -84,50 +84,82 @@ function extractDate(lines: string[]): string {
 
 // ─── Amount Parsing ──────────────────────────────────────────────────────────
 
+// Recognised currency prefixes (add more as needed)
+const CURRENCY_PREFIX = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)/i;
+// Amount with mandatory currency prefix
+const CURRENCY_AMOUNT = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/i;
+// Amount with optional currency prefix (fallback)
+const ANY_AMOUNT    = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)?\s*([\d,]+\.?\d{0,2})/i;
+
+const TOTAL_KEYWORDS_LIST = [
+  /grand\s+total/i, /total\s+amount/i, /amount\s+due/i,
+  /amount\s+paid/i, /^total$/i, /net\s+total/i, /subtotal/i,
+];
+
+function parseAmt(s: string): number {
+  const n = parseFloat(s.replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
 function extractAmount(lines: string[]): number {
-  // Priority keywords (search bottom-up for total)
-  const totalKeywords = [
-    /grand\s+total/i, /total\s+amount/i, /amount\s+due/i,
-    /amount\s+paid/i, /^total$/i, /net\s+total/i, /subtotal/i,
-  ];
-
-  const amountPattern = /(?:rm|myr|\$|€|£|usd|sgd)?\s*([\d,]+\.?\d{0,2})/i;
-
-  // Search from bottom of receipt (totals are usually at the end)
   const reversed = [...lines].reverse();
 
-  for (const keyword of totalKeywords) {
+  // 1. Total keyword line + currency symbol — highest confidence
+  for (const kw of TOTAL_KEYWORDS_LIST) {
     for (const line of reversed) {
-      if (keyword.test(line)) {
-        const match = line.match(amountPattern);
-        if (match) {
-          const amount = parseFloat(match[1].replace(/,/g, ''));
-          if (!isNaN(amount) && amount > 0) return amount;
-        }
-        // Amount might be on the same or next line — check adjacent lines
+      if (kw.test(line)) {
+        const m = line.match(CURRENCY_AMOUNT);
+        if (m) { const a = parseAmt(m[1]); if (a > 0) return a; }
+
+        // Amount on the adjacent line
         const idx = reversed.indexOf(line);
         if (idx > 0) {
-          const prevLine = reversed[idx - 1];
-          const m2 = prevLine.match(amountPattern);
-          if (m2) {
-            const amount = parseFloat(m2[1].replace(/,/g, ''));
-            if (!isNaN(amount) && amount > 0) return amount;
-          }
+          const adj = reversed[idx - 1];
+          const m2 = adj.match(CURRENCY_AMOUNT);
+          if (m2) { const a = parseAmt(m2[1]); if (a > 0) return a; }
         }
       }
     }
   }
 
-  // Fallback: find the largest monetary value in the text
-  let maxAmount = 0;
-  for (const line of reversed) {
-    const matches = line.matchAll(/(?:rm|myr|\$|€|£)?\s*([\d,]+\.\d{2})\b/gi);
-    for (const match of matches) {
-      const amount = parseFloat(match[1].replace(/,/g, ''));
-      if (!isNaN(amount) && amount > maxAmount) maxAmount = amount;
+  // 2. Total keyword line, any amount (no currency prefix needed)
+  for (const kw of TOTAL_KEYWORDS_LIST) {
+    for (const line of reversed) {
+      if (kw.test(line)) {
+        const m = line.match(ANY_AMOUNT);
+        if (m) { const a = parseAmt(m[1]); if (a > 0) return a; }
+
+        const idx = reversed.indexOf(line);
+        if (idx > 0) {
+          const adj = reversed[idx - 1];
+          const m2 = adj.match(ANY_AMOUNT);
+          if (m2) { const a = parseAmt(m2[1]); if (a > 0) return a; }
+        }
+      }
     }
   }
 
+  // 3. Largest currency-prefixed amount in the document
+  let maxAmount = 0;
+  for (const line of reversed) {
+    const hits = line.matchAll(
+      /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/gi
+    );
+    for (const hit of hits) {
+      const a = parseAmt(hit[1]);
+      if (a > maxAmount) maxAmount = a;
+    }
+  }
+  if (maxAmount > 0) return maxAmount;
+
+  // 4. Fallback — largest decimal number anywhere
+  for (const line of reversed) {
+    const hits = line.matchAll(/([\d,]+\.\d{2})\b/g);
+    for (const hit of hits) {
+      const a = parseAmt(hit[1]);
+      if (a > maxAmount) maxAmount = a;
+    }
+  }
   return maxAmount;
 }
 
@@ -227,19 +259,51 @@ export function parseReceiptText(ocrText: string): ParsedReceiptData {
   return { date, merchantName, description, amount };
 }
 
+function addThousandSeparators(numStr: string): string {
+  const [integer, decimal] = numStr.split('.');
+  const formatted = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return decimal !== undefined ? `${formatted}.${decimal}` : formatted;
+}
+
 export function formatCurrency(amount: number): string {
-  return `RM ${amount.toFixed(2)}`;
+  return `RM ${addThousandSeparators(amount.toFixed(2))}`;
+}
+
+/** Format a number for display in an amount input field: 999,999,999.00 */
+export function formatAmountInput(amount: number): string {
+  return addThousandSeparators(amount.toFixed(2));
 }
 
 export function formatDate(isoDate: string): string {
   if (!isoDate) return '-';
   const [y, m, d] = isoDate.split('-');
   if (!y || !m || !d) return isoDate;
-  return `${d}/${m}/${y}`;
+  return `${d}-${m}-${y}`;
+}
+
+/** Convert YYYY-MM-DD → DD-MM-YYYY for display in form inputs */
+export function isoToDisplay(isoDate: string): string {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  if (!y || !m || !d) return isoDate;
+  return `${d}-${m}-${y}`;
+}
+
+/** Convert DD-MM-YYYY (user input) → YYYY-MM-DD for storage */
+export function displayToIso(displayDate: string): string {
+  if (!displayDate) return '';
+  const parts = displayDate.trim().split('-');
+  if (parts.length !== 3) return displayDate;
+  const [d, m, y] = parts;
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
 }
 
 export function todayIso(): string {
   return new Date().toISOString().split('T')[0];
+}
+
+export function todayDisplay(): string {
+  return isoToDisplay(todayIso());
 }
 
 export function compareSemver(a: string, b: string): number {

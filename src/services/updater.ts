@@ -5,7 +5,7 @@ import { getSettings } from './ocr';
 import { compareSemver } from '../utils/receiptParser';
 import type { UpdateCheckResult } from '../types';
 
-const CURRENT_VERSION = '1.0.2';
+const CURRENT_VERSION = '1.0.3';
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   const settings = await getSettings();

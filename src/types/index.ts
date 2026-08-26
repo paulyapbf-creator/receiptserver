@@ -9,6 +9,14 @@ export interface Receipt {
   createdAt: string;
   updatedAt: string;
   tripId: number | null;
+  customerId: number | null;
+  customerName: string;   // denormalised for display without joins
+}
+
+export interface Customer {
+  id: number;
+  name: string;
+  createdAt: string;
 }
 
 export interface Trip {

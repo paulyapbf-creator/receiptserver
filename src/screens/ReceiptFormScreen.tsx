@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
+  FlatList,
 } from 'react-native';
 import {
   Appbar,
@@ -19,12 +20,16 @@ import {
   ActivityIndicator,
   useTheme,
   Divider,
+  IconButton,
 } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
-import { insertReceipt, updateReceipt, getReceiptById, deleteReceipt } from '../services/database';
-import { todayIso, formatDate } from '../utils/receiptParser';
-import type { RootStackParamList } from '../types';
+import {
+  insertReceipt, updateReceipt, getReceiptById, deleteReceipt,
+  searchCustomers, upsertCustomer,
+} from '../services/database';
+import { todayDisplay, isoToDisplay, displayToIso, formatAmountInput } from '../utils/receiptParser';
+import type { Customer, RootStackParamList } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ReceiptForm'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -46,38 +51,80 @@ export default function ReceiptFormScreen() {
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
 
-  const [date, setDate] = useState(preFilledData?.date ?? todayIso());
+  const [date, setDate] = useState(
+    preFilledData?.date ? isoToDisplay(preFilledData.date) : todayDisplay()
+  );
   const [merchantName, setMerchantName] = useState(preFilledData?.merchantName ?? '');
   const [description, setDescription] = useState(preFilledData?.description ?? '');
   const [amountText, setAmountText] = useState(
-    preFilledData?.amount ? preFilledData.amount.toFixed(2) : ''
+    preFilledData?.amount ? formatAmountInput(preFilledData.amount) : ''
   );
   const [imageUri] = useState(preFilledData?.imageUri ?? '');
   const [rawOcrText] = useState(preFilledData?.rawOcrText ?? '');
   const [showOcrText, setShowOcrText] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
+  // Customer state
+  const [customerText, setCustomerText] = useState('');
+  const [customerId, setCustomerId] = useState<number | null>(null);
+  const [suggestions, setSuggestions] = useState<Customer[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     if (receiptId) {
       getReceiptById(receiptId).then(r => {
         if (r) {
-          setDate(r.date);
+          setDate(isoToDisplay(r.date));
           setMerchantName(r.merchantName);
           setDescription(r.description);
-          setAmountText(r.amount.toFixed(2));
+          setAmountText(formatAmountInput(r.amount));
+          setCustomerText(r.customerName || '');
+          setCustomerId(r.customerId);
         }
         setLoading(false);
       });
     }
   }, [receiptId]);
 
+  const handleCustomerChange = (text: string) => {
+    setCustomerText(text);
+    setCustomerId(null); // clear selection when typing
+    setShowSuggestions(true);
+
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!text.trim()) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    searchTimer.current = setTimeout(async () => {
+      const results = await searchCustomers(text);
+      setSuggestions(results);
+    }, 200);
+  };
+
+  const selectCustomer = (c: Customer) => {
+    setCustomerText(c.name);
+    setCustomerId(c.id);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
+
+  const clearCustomer = () => {
+    setCustomerText('');
+    setCustomerId(null);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
+
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
 
     if (!date.trim()) {
       newErrors.date = 'Date is required';
-    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
-      newErrors.date = 'Use format YYYY-MM-DD';
+    } else if (!/^\d{2}-\d{2}-\d{4}$/.test(date.trim())) {
+      newErrors.date = 'Use format DD-MM-YYYY';
     }
 
     if (!merchantName.trim()) {
@@ -99,8 +146,17 @@ export default function ReceiptFormScreen() {
 
     try {
       const amount = parseFloat(amountText.replace(/,/g, ''));
+
+      // Resolve customer: upsert if name provided
+      let resolvedCustomerId: number | null = null;
+      let resolvedCustomerName = '';
+      if (customerText.trim()) {
+        resolvedCustomerId = await upsertCustomer(customerText.trim());
+        resolvedCustomerName = customerText.trim();
+      }
+
       const receiptData = {
-        date: date.trim(),
+        date: displayToIso(date.trim()),
         merchantName: merchantName.trim(),
         description: description.trim(),
         amount,
@@ -109,6 +165,8 @@ export default function ReceiptFormScreen() {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         tripId: null as null,
+        customerId: resolvedCustomerId,
+        customerName: resolvedCustomerName,
       };
 
       if (isEditing && receiptId) {
@@ -118,7 +176,7 @@ export default function ReceiptFormScreen() {
       }
 
       navigation.goBack();
-    } catch (err) {
+    } catch {
       Alert.alert('Error', 'Failed to save receipt. Please try again.');
     } finally {
       setSaving(false);
@@ -182,17 +240,14 @@ export default function ReceiptFormScreen() {
 
           {/* Date */}
           <TextInput
-            label="Date (YYYY-MM-DD)"
+            label="Date (DD-MM-YYYY)"
             value={date}
-            onChangeText={t => {
-              setDate(t);
-              setErrors(e => ({ ...e, date: undefined }));
-            }}
+            onChangeText={t => { setDate(t); setErrors(e => ({ ...e, date: undefined })); }}
             mode="outlined"
             style={styles.input}
             error={!!errors.date}
             keyboardType="default"
-            placeholder="2024-01-15"
+            placeholder="15-01-2024"
             left={<TextInput.Icon icon="calendar" />}
           />
           {errors.date ? <HelperText type="error">{errors.date}</HelperText> : null}
@@ -201,10 +256,7 @@ export default function ReceiptFormScreen() {
           <TextInput
             label="Merchant Name"
             value={merchantName}
-            onChangeText={t => {
-              setMerchantName(t);
-              setErrors(e => ({ ...e, merchantName: undefined }));
-            }}
+            onChangeText={t => { setMerchantName(t); setErrors(e => ({ ...e, merchantName: undefined })); }}
             mode="outlined"
             style={styles.input}
             error={!!errors.merchantName}
@@ -230,10 +282,7 @@ export default function ReceiptFormScreen() {
           <TextInput
             label="Amount (RM)"
             value={amountText}
-            onChangeText={t => {
-              setAmountText(t);
-              setErrors(e => ({ ...e, amount: undefined }));
-            }}
+            onChangeText={t => { setAmountText(t); setErrors(e => ({ ...e, amount: undefined })); }}
             mode="outlined"
             style={styles.input}
             error={!!errors.amount}
@@ -242,6 +291,58 @@ export default function ReceiptFormScreen() {
             left={<TextInput.Icon icon="currency-usd" />}
           />
           {errors.amount ? <HelperText type="error">{errors.amount}</HelperText> : null}
+
+          {/* Customer */}
+          <Divider style={styles.divider} />
+          <Text variant="labelMedium" style={styles.customerLabel}>Customer (optional)</Text>
+          <View style={styles.customerRow}>
+            <TextInput
+              label="Customer Name"
+              value={customerText}
+              onChangeText={handleCustomerChange}
+              onFocus={() => { if (customerText) setShowSuggestions(true); }}
+              mode="outlined"
+              style={[styles.input, styles.customerInput]}
+              placeholder="Type to search or add new"
+              left={<TextInput.Icon icon="account" />}
+              right={
+                customerText
+                  ? <TextInput.Icon icon="close-circle" onPress={clearCustomer} />
+                  : undefined
+              }
+            />
+          </View>
+          {customerId && (
+            <HelperText type="info" style={styles.existingLabel}>
+              Existing customer selected
+            </HelperText>
+          )}
+          {!customerId && customerText.trim().length > 0 && (
+            <HelperText type="info" style={styles.newLabel}>
+              New customer — will be saved on submit
+            </HelperText>
+          )}
+
+          {/* Suggestions dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <Surface style={styles.suggestionsBox} elevation={4}>
+              <FlatList
+                data={suggestions}
+                keyExtractor={item => String(item.id)}
+                scrollEnabled={false}
+                ItemSeparatorComponent={() => <Divider />}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.suggestionItem}
+                    onPress={() => selectCustomer(item)}
+                  >
+                    <IconButton icon="account-check" size={16} iconColor={theme.colors.primary} style={styles.suggestionIcon} />
+                    <Text variant="bodyMedium" style={styles.suggestionText}>{item.name}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </Surface>
+          )}
         </Surface>
 
         {/* OCR Raw Text (collapsible) */}
@@ -305,6 +406,29 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: '#1B5E20', fontWeight: 'bold', marginBottom: 8 },
   input: { backgroundColor: 'white', marginBottom: 4 },
+  divider: { marginVertical: 10 },
+
+  customerLabel: { color: '#555', marginBottom: 4 },
+  customerRow: { flexDirection: 'row', alignItems: 'center' },
+  customerInput: { flex: 1 },
+  existingLabel: { color: '#1B5E20' },
+  newLabel: { color: '#F57C00' },
+
+  suggestionsBox: {
+    borderRadius: 6,
+    backgroundColor: 'white',
+    marginTop: 2,
+    marginBottom: 4,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingRight: 12,
+  },
+  suggestionIcon: { margin: 0 },
+  suggestionText: { color: '#1A1A1A' },
 
   ocrCard: {
     borderRadius: 8,
@@ -313,7 +437,6 @@ const styles = StyleSheet.create({
   },
   ocrToggle: { paddingVertical: 4 },
   ocrToggleText: { color: '#1976D2' },
-  divider: { marginVertical: 8 },
   ocrText: { color: '#555', fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier' },
 
   saveButton: { marginTop: 8, borderRadius: 8 },

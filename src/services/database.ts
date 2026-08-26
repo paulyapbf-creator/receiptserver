@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import type { Receipt, Trip } from '../types';
+import type { Receipt, Trip, Customer } from '../types';
 
 let db: SQLite.SQLiteDatabase | null = null;
 
@@ -27,12 +27,20 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS customers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
     `);
-    // Add trip_id column to receipts if it doesn't exist yet (migration)
-    try {
-      await db.execAsync('ALTER TABLE receipts ADD COLUMN trip_id INTEGER REFERENCES trips(id)');
-    } catch {
-      // Column already exists — ignore
+    // Migrations — add columns if they don't exist yet
+    const migrations = [
+      'ALTER TABLE receipts ADD COLUMN trip_id INTEGER REFERENCES trips(id)',
+      'ALTER TABLE receipts ADD COLUMN customer_id INTEGER REFERENCES customers(id)',
+      'ALTER TABLE receipts ADD COLUMN customer_name TEXT NOT NULL DEFAULT ""',
+    ];
+    for (const sql of migrations) {
+      try { await db.execAsync(sql); } catch { /* already exists */ }
     }
   }
   return db;
@@ -50,6 +58,16 @@ function rowToReceipt(row: Record<string, unknown>): Receipt {
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
     tripId: (row.trip_id as number | null) ?? null,
+    customerId: (row.customer_id as number | null) ?? null,
+    customerName: (row.customer_name as string) ?? '',
+  };
+}
+
+function rowToCustomer(row: Record<string, unknown>): Customer {
+  return {
+    id: row.id as number,
+    name: row.name as string,
+    createdAt: row.created_at as string,
   };
 }
 
@@ -104,14 +122,18 @@ export async function insertReceipt(receipt: Omit<Receipt, 'id'>): Promise<numbe
   const database = await getDb();
   const now = new Date().toISOString();
   const result = await database.runAsync(
-    `INSERT INTO receipts (date, merchant_name, description, amount, image_uri, raw_ocr_text, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO receipts
+       (date, merchant_name, description, amount, image_uri, raw_ocr_text,
+        customer_id, customer_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     receipt.date,
     receipt.merchantName,
     receipt.description,
     receipt.amount,
     receipt.imageUri || '',
     receipt.rawOcrText || '',
+    receipt.customerId ?? null,
+    receipt.customerName || '',
     now,
     now
   );
@@ -129,6 +151,8 @@ export async function updateReceipt(id: number, updates: Partial<Omit<Receipt, '
       amount = COALESCE(?, amount),
       image_uri = COALESCE(?, image_uri),
       raw_ocr_text = COALESCE(?, raw_ocr_text),
+      customer_id = ?,
+      customer_name = COALESCE(?, customer_name),
       updated_at = ?
      WHERE id = ?`,
     updates.date ?? null,
@@ -137,6 +161,8 @@ export async function updateReceipt(id: number, updates: Partial<Omit<Receipt, '
     updates.amount ?? null,
     updates.imageUri ?? null,
     updates.rawOcrText ?? null,
+    updates.customerId !== undefined ? updates.customerId : null,
+    updates.customerName ?? null,
     now,
     id
   );
@@ -264,4 +290,56 @@ export async function deleteTrip(id: number): Promise<void> {
     id
   );
   await database.runAsync('DELETE FROM trips WHERE id = ?', id);
+}
+
+// ─── Customers ────────────────────────────────────────────────────────────────
+
+export async function getAllCustomers(): Promise<Customer[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<Record<string, unknown>>(
+    'SELECT * FROM customers ORDER BY name ASC'
+  );
+  return rows.map(rowToCustomer);
+}
+
+export async function searchCustomers(query: string): Promise<Customer[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<Record<string, unknown>>(
+    'SELECT * FROM customers WHERE name LIKE ? ORDER BY name ASC LIMIT 10',
+    `%${query}%`
+  );
+  return rows.map(rowToCustomer);
+}
+
+export async function findCustomerByName(name: string): Promise<Customer | null> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<Record<string, unknown>>(
+    'SELECT * FROM customers WHERE name = ? COLLATE NOCASE',
+    name.trim()
+  );
+  return row ? rowToCustomer(row) : null;
+}
+
+/** Insert if not exists, return the customer id */
+export async function upsertCustomer(name: string): Promise<number> {
+  const existing = await findCustomerByName(name);
+  if (existing) return existing.id;
+  const database = await getDb();
+  const result = await database.runAsync(
+    'INSERT INTO customers (name, created_at) VALUES (?, ?)',
+    name.trim(),
+    new Date().toISOString()
+  );
+  return result.lastInsertRowId;
+}
+
+export async function deleteCustomer(id: number): Promise<void> {
+  const database = await getDb();
+  // Unassign receipts from this customer
+  await database.runAsync(
+    'UPDATE receipts SET customer_id = NULL, customer_name = "", updated_at = ? WHERE customer_id = ?',
+    new Date().toISOString(),
+    id
+  );
+  await database.runAsync('DELETE FROM customers WHERE id = ?', id);
 }

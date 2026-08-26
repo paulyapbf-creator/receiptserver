@@ -76,10 +76,10 @@ Return ONLY a valid JSON object — no explanation, no markdown, just the JSON:
 }
 
 Rules:
-- date: use YYYY-MM-DD format. If unclear, use today's date.
+- date: the transaction/purchase date on this receipt in YYYY-MM-DD format. Look for labels like "Date", "Transaction Date", "Invoice Date". Do NOT use expiry dates, membership dates, or print dates. If unclear, use today's date.
 - merchantName: the store/restaurant name, usually at the top.
 - description: list of main items or a short transaction summary (max 100 chars).
-- amount: the TOTAL or GRAND TOTAL as a decimal number only (no currency symbol).
+- amount: the TOTAL or GRAND TOTAL as a plain decimal number (no currency symbol). Look for currency signs RM, MYR, VND, THB, SGD, JPY, IDR, USD, $, ¥, ₫, ฿ to identify the correct amount field.
 - rawText: transcribe all visible text from the receipt.`;
 
 // Call Claude API with receipt image — returns structured data directly
