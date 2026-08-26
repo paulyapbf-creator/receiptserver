@@ -108,6 +108,7 @@ export default function ReceiptFormScreen() {
         rawOcrText: rawOcrText || '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        tripId: null as null,
       };
 
       if (isEditing && receiptId) {

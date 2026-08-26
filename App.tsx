@@ -11,6 +11,9 @@ import HomeScreen from './src/screens/HomeScreen';
 import ScanScreen from './src/screens/ScanScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ReceiptFormScreen from './src/screens/ReceiptFormScreen';
+import TripScreen from './src/screens/TripScreen';
+import TripFormScreen from './src/screens/TripFormScreen';
+import TripReceiptSelectorScreen from './src/screens/TripReceiptSelectorScreen';
 
 import type { RootStackParamList, MainTabParamList } from './src/types';
 
@@ -38,6 +41,7 @@ type TabIconProps = {
 function getTabIcon(routeName: string): keyof typeof MaterialCommunityIcons.glyphMap {
   switch (routeName) {
     case 'Home': return 'receipt';
+    case 'Trips': return 'briefcase';
     case 'Scan': return 'camera';
     case 'Settings': return 'cog';
     default: return 'circle';
@@ -62,6 +66,7 @@ function MainTabs() {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Receipts' }} />
+      <Tab.Screen name="Trips" component={TripScreen} options={{ title: 'Trips' }} />
       <Tab.Screen name="Scan" component={ScanScreen} options={{ title: 'Scan' }} />
       <Tab.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
     </Tab.Navigator>
@@ -80,6 +85,16 @@ export default function App() {
               name="ReceiptForm"
               component={ReceiptFormScreen}
               options={{ animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="TripForm"
+              component={TripFormScreen}
+              options={{ animation: 'slide_from_bottom' }}
+            />
+            <Stack.Screen
+              name="TripReceiptSelector"
+              component={TripReceiptSelectorScreen}
+              options={{ animation: 'slide_from_right' }}
             />
           </Stack.Navigator>
         </NavigationContainer>

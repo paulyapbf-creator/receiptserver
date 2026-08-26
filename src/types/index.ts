@@ -8,6 +8,16 @@ export interface Receipt {
   rawOcrText: string;
   createdAt: string;
   updatedAt: string;
+  tripId: number | null;
+}
+
+export interface Trip {
+  id: number;
+  description: string;
+  dateFrom: string;   // YYYY-MM-DD
+  dateTo: string;     // YYYY-MM-DD
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type SortField = 'date' | 'merchantName' | 'description' | 'amount';
@@ -50,10 +60,13 @@ export type RootStackParamList = {
     receiptId?: number;
     preFilledData?: Partial<ParsedReceiptData & { imageUri?: string; rawOcrText?: string }>;
   };
+  TripForm: { tripId?: number };
+  TripReceiptSelector: { tripId: number };
 };
 
 export type MainTabParamList = {
   Home: undefined;
+  Trips: undefined;
   Scan: undefined;
   Settings: undefined;
 };
