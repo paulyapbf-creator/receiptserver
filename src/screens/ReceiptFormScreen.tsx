@@ -21,6 +21,7 @@ import {
   useTheme,
   Divider,
   IconButton,
+  Menu,
 } from 'react-native-paper';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -28,8 +29,8 @@ import {
   insertReceipt, updateReceipt, getReceiptById, deleteReceipt,
   searchCustomers, upsertCustomer,
 } from '../services/database';
-import { todayDisplay, isoToDisplay, displayToIso, formatAmountInput } from '../utils/receiptParser';
-import type { Customer, RootStackParamList } from '../types';
+import { todayDisplay, isoToDisplay, displayToIso, formatAmountInput, RECEIPT_CATEGORIES } from '../utils/receiptParser';
+import type { Customer, RootStackParamList, ReceiptCategory } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ReceiptForm'>;
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -55,7 +56,10 @@ export default function ReceiptFormScreen() {
     preFilledData?.date ? isoToDisplay(preFilledData.date) : todayDisplay()
   );
   const [merchantName, setMerchantName] = useState(preFilledData?.merchantName ?? '');
-  const [description, setDescription] = useState(preFilledData?.description ?? '');
+  const [category, setCategory] = useState<ReceiptCategory>(
+    (preFilledData?.description as ReceiptCategory) ?? 'Other'
+  );
+  const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
   const [amountText, setAmountText] = useState(
     preFilledData?.amount ? formatAmountInput(preFilledData.amount) : ''
   );
@@ -78,7 +82,7 @@ export default function ReceiptFormScreen() {
         if (r) {
           setDate(isoToDisplay(r.date));
           setMerchantName(r.merchantName);
-          setDescription(r.description);
+          setCategory((r.description as ReceiptCategory) || 'Other');
           setAmountText(formatAmountInput(r.amount));
           setCustomerText(r.customerName || '');
           setCustomerId(r.customerId);
@@ -159,7 +163,7 @@ export default function ReceiptFormScreen() {
       const receiptData = {
         date: displayToIso(date.trim()),
         merchantName: merchantName.trim(),
-        description: description.trim(),
+        description: category,
         amount,
         imageUri: imageUri || '',
         rawOcrText: rawOcrText || '',
@@ -266,18 +270,35 @@ export default function ReceiptFormScreen() {
           />
           {errors.merchantName ? <HelperText type="error">{errors.merchantName}</HelperText> : null}
 
-          {/* Description */}
-          <TextInput
-            label="Transaction / Description"
-            value={description}
-            onChangeText={setDescription}
-            mode="outlined"
-            style={styles.input}
-            placeholder="e.g. Groceries, Business lunch"
-            multiline
-            numberOfLines={2}
-            left={<TextInput.Icon icon="text" />}
-          />
+          {/* Transaction Category */}
+          <Menu
+            visible={categoryMenuVisible}
+            onDismiss={() => setCategoryMenuVisible(false)}
+            anchor={
+              <TouchableOpacity onPress={() => setCategoryMenuVisible(true)}>
+                <TextInput
+                  label="Transaction Category"
+                  value={category}
+                  mode="outlined"
+                  style={styles.input}
+                  editable={false}
+                  pointerEvents="none"
+                  left={<TextInput.Icon icon="tag" />}
+                  right={<TextInput.Icon icon="chevron-down" />}
+                />
+              </TouchableOpacity>
+            }
+            contentStyle={styles.menuContent}
+          >
+            {RECEIPT_CATEGORIES.map(cat => (
+              <Menu.Item
+                key={cat}
+                title={cat}
+                onPress={() => { setCategory(cat); setCategoryMenuVisible(false); }}
+                titleStyle={cat === category ? styles.menuItemSelected : undefined}
+              />
+            ))}
+          </Menu>
 
           {/* Amount */}
           <TextInput
@@ -442,4 +463,6 @@ const styles = StyleSheet.create({
 
   saveButton: { marginTop: 8, borderRadius: 8 },
   saveButtonContent: { height: 48 },
+  menuContent: { backgroundColor: 'white' },
+  menuItemSelected: { color: '#1B5E20', fontWeight: 'bold' },
 });

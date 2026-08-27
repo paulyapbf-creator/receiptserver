@@ -260,42 +260,68 @@ function extractMerchantName(lines: string[]): string {
   return candidates.join(' ').trim() || 'Unknown Merchant';
 }
 
-// ─── Description ─────────────────────────────────────────────────────────────
+// ─── Transaction Category ─────────────────────────────────────────────────────
 
-const TOTAL_LINE_RE = /(?:total|amount|subtotal|tax|gst|sst|service charge|discount|cash|change|balance)/i;
-const ITEM_PATTERN  = /^(.+?)\s+(?:x\s*\d+\s+)?(?:rm|myr|\$)?\s*[\d,]+\.\d{2}/i;
+export const RECEIPT_CATEGORIES = [
+  'Food & Beverages',
+  'Hotel & Accommodation',
+  'Transport & Fuel',
+  'Groceries',
+  'Healthcare',
+  'Entertainment',
+  'Retail & Shopping',
+  'Utilities & Bills',
+  'Business & Services',
+  'Other',
+] as const;
 
-function extractDescription(lines: string[], merchantName: string): string {
-  const items: string[] = [];
-  let inItemSection = false;
+export type ReceiptCategory = typeof RECEIPT_CATEGORIES[number];
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+const CATEGORY_RULES: { category: ReceiptCategory; pattern: RegExp }[] = [
+  {
+    category: 'Food & Beverages',
+    pattern: /restaurant|cafe|coffee|bakery|pizza|burger|sushi|mamak|warung|kedai\s*makan|food|drink|beverage|bar|pub|bistro|diner|eatery|kopitiam|teh\s*tarik|nasi|mee|roti|ayam|seafood|steamboat|bbq|grill|kitchen|canteen|hawker|food\s*court|meal|lunch|dinner|breakfast|snack|dessert|ice\s*cream|boba|bubble\s*tea/i,
+  },
+  {
+    category: 'Hotel & Accommodation',
+    pattern: /hotel|motel|hostel|accommodation|room|lodge|inn|resort|chalet|suite|airbnb|penginapan|bilik|homestay|villa|apartment\s*stay|serviced\s*apartment/i,
+  },
+  {
+    category: 'Transport & Fuel',
+    pattern: /grab|taxi|uber|lyft|bus|train|ktm|lrt|mrt|flight|airline|petrol|fuel|diesel|toll|parking|car\s*park|car\s*rental|airport|grab\s*car|e-hailing|myrapid|petronas|shell|petron|bhp\s*petrol|caltex/i,
+  },
+  {
+    category: 'Groceries',
+    pattern: /supermarket|hypermarket|giant|tesco|mydin|aeon|99\s*speedmart|speedmart|econsave|jaya\s*grocer|cold\s*storage|village\s*grocer|fresh\s*mart|grocery|pasaraya|pasar\s*raya|convenience\s*store|7[\-\s]?eleven|7eleven|watson|guardian|farm\s*fresh/i,
+  },
+  {
+    category: 'Healthcare',
+    pattern: /clinic|hospital|pharmacy|farmasi|doctor|dr\.|medicine|dental|dentist|medical|health|klinik|ubat|optician|optical|lab|laboratory|physiotherapy|specialist/i,
+  },
+  {
+    category: 'Entertainment',
+    pattern: /cinema|movie|film|gsc|tgv|mbo|ticket|concert|event|game|bowling|karaoke|sport|gym|fitness|theme\s*park|waterpark|escape|museum|zoo|aquarium|arcade/i,
+  },
+  {
+    category: 'Retail & Shopping',
+    pattern: /shop|boutique|fashion|clothing|clothes|apparel|shoes|footwear|electronic|gadget|hardware|book|stationery|toy|gift|jewelry|watch|bag|cosmetic|beauty|salon|barbershop/i,
+  },
+  {
+    category: 'Utilities & Bills',
+    pattern: /water|electricity|electric|tenaga|gas|internet|broadband|telco|celcom|maxis|digi|unifi|streamyx|yes\s*4g|phone\s*bill|utility|utilities|sewerage|indah\s*water/i,
+  },
+  {
+    category: 'Business & Services',
+    pattern: /printing|courier|pos\s*laju|postage|service|repair|maintenance|cleaning|laundry|insurance|bank|atm|photostat|photocopy|document|legal|accounting|consultancy/i,
+  },
+];
 
-    if (merchantName && trimmed.toLowerCase().includes(merchantName.toLowerCase().slice(0, 5))) {
-      inItemSection = true;
-      continue;
-    }
-
-    if (TOTAL_LINE_RE.test(trimmed) && trimmed.length < 30) break;
-
-    if (inItemSection && isMeaningfulLine(trimmed)) {
-      const itemMatch = trimmed.match(ITEM_PATTERN);
-      if (itemMatch) {
-        items.push(itemMatch[1].trim());
-      } else if (!SKIP_PATTERNS.some(p => p.test(trimmed)) && trimmed.length > 2 && trimmed.length < 50) {
-        items.push(trimmed);
-      }
-    }
+export function categorizeReceipt(merchantName: string, ocrText: string): ReceiptCategory {
+  const searchText = `${merchantName} ${ocrText}`;
+  for (const rule of CATEGORY_RULES) {
+    if (rule.pattern.test(searchText)) return rule.category;
   }
-
-  if (items.length > 0) return items.slice(0, 5).join(', ');
-
-  const midStart = Math.floor(lines.length * 0.2);
-  const midEnd   = Math.floor(lines.length * 0.7);
-  const midLines = lines.slice(midStart, midEnd).filter(isMeaningfulLine);
-  return midLines.slice(0, 3).join(', ') || 'Purchase';
+  return 'Other';
 }
 
 // ─── Main Parser ─────────────────────────────────────────────────────────────
@@ -310,7 +336,7 @@ export function parseReceiptText(ocrText: string): ParsedReceiptData {
   const merchantName = extractMerchantName(lines);
   const amount       = extractAmount(lines);
   const currency     = extractCurrency(lines, TOTAL_KEYWORDS);
-  const description  = extractDescription(lines, merchantName);
+  const description  = categorizeReceipt(merchantName, ocrText);
 
   return { date, merchantName, description, amount, currency };
 }

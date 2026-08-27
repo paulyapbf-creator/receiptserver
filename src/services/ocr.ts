@@ -1,6 +1,6 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { parseReceiptText, todayIso } from '../utils/receiptParser';
+import { parseReceiptText, categorizeReceipt, todayIso } from '../utils/receiptParser';
 import type { ParsedReceiptData } from '../types';
 
 const SETTINGS_KEY = 'app_settings';
@@ -70,7 +70,7 @@ Return ONLY a valid JSON object — no explanation, no markdown, just the JSON:
 {
   "date": "YYYY-MM-DD",
   "merchantName": "business name",
-  "description": "summary of items or transaction type",
+  "category": "Food & Beverages",
   "amount": 0.00,
   "currency": "MYR",
   "rawText": "full text from the receipt"
@@ -79,9 +79,19 @@ Return ONLY a valid JSON object — no explanation, no markdown, just the JSON:
 Rules:
 - date: Find the field labelled "Date", "Tarikh", "Transaction Date", "Invoice Date", "Purchase Date", or similar. Use the value next to or below that label in YYYY-MM-DD format. Do NOT use expiry dates, membership dates, card expiry, or print dates. If no date label is found, use today's date.
 - merchantName: the store, restaurant, or company name — usually the largest text at the top of the receipt.
-- description: a short comma-separated list of the main purchased items or a transaction summary (max 100 chars).
+- category: classify the receipt into exactly one of these categories based on the merchant name and items:
+    "Food & Beverages" — restaurants, cafes, food stalls, drinks
+    "Hotel & Accommodation" — hotels, motels, hostels, lodging, room charges
+    "Transport & Fuel" — taxi, grab, petrol, toll, parking, bus, train, flight
+    "Groceries" — supermarkets, hypermarkets, convenience stores, grocery shops
+    "Healthcare" — clinics, hospitals, pharmacies, dental, medical
+    "Entertainment" — cinemas, events, concerts, games, sports, gym
+    "Retail & Shopping" — clothing, electronics, gadgets, shoes, general retail
+    "Utilities & Bills" — electricity, water, internet, phone bill, telco
+    "Business & Services" — courier, printing, repair, bank, insurance, laundry
+    "Other" — anything that does not fit the above
 - amount: find the field labelled "Total", "Grand Total", "Amount Due", "Amount Payable", "Jumlah", or "Jumlah Bayar". Use the number associated with that label — NOT subtotals, tax lines, or individual item prices. Return as a plain decimal number (no currency symbol).
-- currency: the currency code from the receipt (e.g. MYR, USD, SGD, THB, IDR, JPY). Look for the currency symbol next to the total amount (RM = MYR, $ = USD, ¥ = JPY, ฿ = THB, ₫ = VND). Default to MYR if not found.
+- currency: the currency code (MYR, USD, SGD, THB, IDR, JPY). Look for symbol next to total (RM=MYR, $=USD, ¥=JPY, ฿=THB, ₫=VND). Default MYR.
 - rawText: transcribe all visible text from the receipt verbatim.`;
 
 // Call Claude API with receipt image — returns structured data directly
@@ -136,14 +146,15 @@ export async function callClaudeOcr(
   if (jsonMatch) {
     try {
       const extracted = JSON.parse(jsonMatch[0]);
+      const rawText = extracted.rawText || content;
       const parsed: ParsedReceiptData = {
         date:         extracted.date         || todayIso(),
         merchantName: extracted.merchantName || 'Unknown Merchant',
-        description:  extracted.description  || '',
+        description:  extracted.category     || categorizeReceipt(extracted.merchantName || '', rawText),
         amount:       parseFloat(String(extracted.amount)) || 0,
         currency:     extracted.currency     || 'MYR',
       };
-      return { ocrText: extracted.rawText || content, parsed };
+      return { ocrText: rawText, parsed };
     } catch {
       // JSON parse failed — fall through to text parser
     }

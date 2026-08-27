@@ -36,6 +36,7 @@ export interface SortConfig {
   order: SortOrder;
 }
 
+export type { ReceiptCategory } from '../utils/receiptParser';
 export type OcrProvider = 'google' | 'claude';
 
 export interface AppSettings {
