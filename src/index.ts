@@ -6,6 +6,7 @@ import path from 'path';
 import receiptsRouter from './routes/receipts';
 import versionRouter from './routes/version';
 import statsRouter from './routes/stats';
+import downloadsRouter from './routes/downloads';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -14,9 +15,16 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 // ─── API Routes ───────────────────────────────────────────────────────────────
-app.use('/api/receipts', receiptsRouter);
-app.use('/api/version',  versionRouter);
-app.use('/api/stats',    statsRouter);
+app.use('/api/receipts',  receiptsRouter);
+app.use('/api/version',   versionRouter);
+app.use('/api/stats',     statsRouter);
+app.use('/api/downloads', downloadsRouter);
+
+// ─── Serve uploaded APKs ──────────────────────────────────────────────────────
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, '..', 'data');
+app.use('/downloads', express.static(path.join(dataDir, 'downloads')));
 
 // ─── Serve React frontend in production ───────────────────────────────────────
 const clientDist = path.join(__dirname, '..', 'client', 'dist');

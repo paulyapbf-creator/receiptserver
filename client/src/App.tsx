@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getReceipts, getStats, getVersion, updateVersion } from './api';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getReceipts, getStats, getVersion, updateVersion, uploadApk } from './api';
 import type { ServerReceipt, Stats, VersionInfo } from './types';
 import StatsPanel from './components/StatsPanel';
 import ReceiptTable from './components/ReceiptTable';
@@ -8,12 +8,32 @@ import ReceiptDetail from './components/ReceiptDetail';
 type Tab = 'receipts' | 'stats' | 'settings';
 
 function SettingsPanel() {
-  const [ver, setVer]     = useState<VersionInfo | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
-  const [error, setError]   = useState('');
+  const [ver, setVer]         = useState<VersionInfo | null>(null);
+  const [saving, setSaving]   = useState(false);
+  const [saved, setSaved]     = useState(false);
+  const [error, setError]     = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState('');
+  const [uploadErr, setUploadErr] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { getVersion().then(setVer); }, []);
+
+  const handleUploadApk = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true); setUploadErr(''); setUploadMsg('');
+    try {
+      const result = await uploadApk(file);
+      setUploadMsg(`Uploaded: ${result.filename}`);
+      setVer(v => v ? { ...v, downloadUrl: result.downloadUrl } : v);
+    } catch (err: unknown) {
+      setUploadErr(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = async () => {
     if (!ver) return;
@@ -55,6 +75,27 @@ function SettingsPanel() {
           <div><span className="text-blue-600">GET</span>  {serverUrl}/api/version</div>
           <div><span className="text-blue-600">GET</span>  {serverUrl}/api/stats</div>
         </div>
+      </div>
+
+      {/* APK Upload */}
+      <div className="card p-5 space-y-4">
+        <h3 className="font-semibold text-gray-700">Upload APK</h3>
+        <p className="text-sm text-gray-500">
+          Upload a locally-built APK to host it on this server. The download URL will be filled in automatically.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".apk"
+            onChange={handleUploadApk}
+            disabled={uploading}
+            className="text-sm text-gray-600 file:mr-3 file:btn-secondary file:cursor-pointer file:border-0"
+          />
+          {uploading && <span className="text-sm text-gray-400">Uploading...</span>}
+        </div>
+        {uploadMsg && <p className="text-sm text-green-600">{uploadMsg}</p>}
+        {uploadErr && <p className="text-sm text-red-600">{uploadErr}</p>}
       </div>
 
       {/* Version Management */}

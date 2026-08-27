@@ -41,3 +41,14 @@ export async function updateVersion(data: VersionInfo): Promise<void> {
     body: JSON.stringify(data),
   });
 }
+
+export async function uploadApk(file: File): Promise<{ filename: string; downloadUrl: string }> {
+  const form = new FormData();
+  form.append('apk', file);
+  const res = await fetch('/api/downloads/upload', { method: 'POST', body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
