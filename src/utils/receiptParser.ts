@@ -10,34 +10,28 @@ const MONTHS: Record<string, string> = {
 };
 
 function normalizeDate(raw: string): string {
+  const s = raw.trim();
+
   // Already ISO
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return raw.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
   // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
-  const dmy = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  const dmy = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
   if (dmy) {
     const [, d, m, y] = dmy;
     const year = y.length === 2 ? `20${y}` : y;
     return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  // MM/DD/YYYY (US format) - heuristic: month <= 12 and day > 12
-  const mdy = raw.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
-  if (mdy) {
-    const [, m, d, y] = mdy;
-    const year = y.length === 2 ? `20${y}` : y;
-    return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-
   // YYYYMMDD
-  const compact = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const compact = s.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (compact) {
     const [, y, m, d] = compact;
     return `${y}-${m}-${d}`;
   }
 
   // DD Mon YYYY or D Mon YY (e.g., 15 Jan 2024)
-  const textDate = raw.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{2,4})$/);
+  const textDate = s.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{2,4})$/);
   if (textDate) {
     const [, d, mon, y] = textDate;
     const m = MONTHS[mon.toLowerCase()];
@@ -48,7 +42,7 @@ function normalizeDate(raw: string): string {
   }
 
   // Mon DD, YYYY (e.g., Jan 15, 2024)
-  const textDate2 = raw.match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{2,4})$/);
+  const textDate2 = s.match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{2,4})$/);
   if (textDate2) {
     const [, mon, d, y] = textDate2;
     const m = MONTHS[mon.toLowerCase()];
@@ -61,20 +55,46 @@ function normalizeDate(raw: string): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function extractDate(lines: string[]): string {
-  const datePatterns = [
-    /\b(\d{4}[-\/]\d{2}[-\/]\d{2})\b/,
-    /\b(\d{1,2}[-\/\.]\d{1,2}[-\/\.]\d{2,4})\b/,
-    /\b(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})\b/i,
-    /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b/i,
-    /\b(\d{8})\b/,
-  ];
+// Patterns that match date values within a string
+const DATE_VALUE_PATTERNS = [
+  /\b(\d{4}[-\/]\d{2}[-\/]\d{2})\b/,                                          // YYYY-MM-DD
+  /\b(\d{1,2}[-\/\.]\d{1,2}[-\/\.]\d{2,4})\b/,                                // DD/MM/YYYY etc.
+  /\b(\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4})\b/i,  // 15 Jan 2024
+  /\b((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b/i, // Jan 15 2024
+  /\b(\d{8})\b/,                                                               // YYYYMMDD
+];
 
+// Labels that indicate a date field — checked first (label-aware extraction)
+const DATE_LABEL_PATTERN =
+  /^(?:date|tarikh|dt\.?|invoice\s+date|transaction\s+date|receipt\s+date|purchase\s+date|order\s+date|sale\s+date|bill\s+date)\s*[:\-]?\s*/i;
+
+function extractDate(lines: string[]): string {
+  // 1. Label-aware: find a line starting with a date label and extract the date from it
   for (const line of lines) {
-    for (const pattern of datePatterns) {
+    if (DATE_LABEL_PATTERN.test(line)) {
+      const valueStr = line.replace(DATE_LABEL_PATTERN, '').trim();
+      for (const pat of DATE_VALUE_PATTERNS) {
+        const m = valueStr.match(pat);
+        if (m) {
+          const normalized = normalizeDate(m[1]);
+          // Sanity-check: year must be between 2000 and 2099
+          const year = parseInt(normalized.slice(0, 4), 10);
+          if (year >= 2000 && year <= 2099) return normalized;
+        }
+      }
+    }
+  }
+
+  // 2. Fallback: scan all lines for date patterns (skip lines that look like receipt numbers)
+  for (const line of lines) {
+    // Skip lines that are clearly not dates (e.g., "NO.: 123456", "REF: ABC123")
+    if (/(?:no|ref|inv|receipt|transaction|id|num)\s*[:\-#]/i.test(line)) continue;
+    for (const pattern of DATE_VALUE_PATTERNS) {
       const match = line.match(pattern);
       if (match) {
-        return normalizeDate(match[1]);
+        const normalized = normalizeDate(match[1]);
+        const year = parseInt(normalized.slice(0, 4), 10);
+        if (year >= 2000 && year <= 2099) return normalized;
       }
     }
   }
@@ -82,18 +102,60 @@ function extractDate(lines: string[]): string {
   return new Date().toISOString().split('T')[0];
 }
 
-// ─── Amount Parsing ──────────────────────────────────────────────────────────
+// ─── Currency Parsing ─────────────────────────────────────────────────────────
 
-// Recognised currency prefixes (add more as needed)
-const CURRENCY_PREFIX = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)/i;
-// Amount with mandatory currency prefix
-const CURRENCY_AMOUNT = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/i;
-// Amount with optional currency prefix (fallback)
-const ANY_AMOUNT    = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)?\s*([\d,]+\.?\d{0,2})/i;
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  rm: 'MYR', myr: 'MYR',
+  usd: 'USD', '$': 'USD',
+  sgd: 'SGD',
+  thb: 'THB', '฿': 'THB',
+  idr: 'IDR',
+  jpy: 'JPY', '¥': 'JPY',
+  '€': 'EUR',
+  '£': 'GBP',
+  vnd: 'VND', '₫': 'VND',
+};
 
-const TOTAL_KEYWORDS_LIST = [
+// Matches any currency prefix (e.g. "RM", "USD", "$")
+const CURRENCY_RE = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)/i;
+
+// Matches currency prefix immediately followed by an amount
+const CURRENCY_AMOUNT_RE = /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/i;
+
+function toCurrencyCode(symbol: string): string {
+  return CURRENCY_SYMBOLS[symbol.toLowerCase()] || symbol.toUpperCase();
+}
+
+function extractCurrency(lines: string[], totalKeywords: RegExp[]): string {
+  // Prefer currency found on a total/amount label line
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (totalKeywords.some(kw => kw.test(line))) {
+      const m = line.match(CURRENCY_RE);
+      if (m) return toCurrencyCode(m[0]);
+      // Check adjacent lines
+      if (i + 1 < lines.length) {
+        const m2 = lines[i + 1].match(CURRENCY_RE);
+        if (m2) return toCurrencyCode(m2[0]);
+      }
+    }
+  }
+  // Any currency symbol anywhere in the doc
+  for (const line of lines) {
+    const m = line.match(CURRENCY_RE);
+    if (m) return toCurrencyCode(m[0]);
+  }
+  return 'MYR';
+}
+
+// ─── Amount Parsing ───────────────────────────────────────────────────────────
+
+const TOTAL_KEYWORDS: RegExp[] = [
   /grand\s+total/i, /total\s+amount/i, /amount\s+due/i,
-  /amount\s+paid/i, /^total$/i, /net\s+total/i, /subtotal/i,
+  /amount\s+paid/i, /jumlah\s+bayar/i, /jumlah\s+keseluruhan/i,
+  /^total$/i, /net\s+total/i, /nett\s+total/i,
+  /sub\s*total/i, /subtotal/i,
+  /total\s+to\s+pay/i, /amount\s+payable/i,
 ];
 
 function parseAmt(s: string): number {
@@ -101,61 +163,61 @@ function parseAmt(s: string): number {
   return isNaN(n) ? 0 : n;
 }
 
+// Extract an amount from a single line — tries currency-prefixed first, then bare decimal
+function amountFromLine(line: string): number {
+  // Currency-prefixed: RM 45.50  |  $ 100.00
+  const withCurrency = line.match(CURRENCY_AMOUNT_RE);
+  if (withCurrency) {
+    const a = parseAmt(withCurrency[1]);
+    if (a > 0) return a;
+  }
+  // Bare decimal number: 45.50
+  const bare = line.match(/\b([\d,]+\.\d{2})\b/);
+  if (bare) {
+    const a = parseAmt(bare[1]);
+    if (a > 0) return a;
+  }
+  return 0;
+}
+
 function extractAmount(lines: string[]): number {
-  const reversed = [...lines].reverse();
+  // Scan bottom-to-top — totals are usually near the end of a receipt
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!TOTAL_KEYWORDS.some(kw => kw.test(line))) continue;
 
-  // 1. Total keyword line + currency symbol — highest confidence
-  for (const kw of TOTAL_KEYWORDS_LIST) {
-    for (const line of reversed) {
-      if (kw.test(line)) {
-        const m = line.match(CURRENCY_AMOUNT);
-        if (m) { const a = parseAmt(m[1]); if (a > 0) return a; }
+    // Amount on the same line as the keyword (e.g., "TOTAL    RM 45.50")
+    const sameLineAmt = amountFromLine(line);
+    if (sameLineAmt > 0) return sameLineAmt;
 
-        // Amount on the adjacent line
-        const idx = reversed.indexOf(line);
-        if (idx > 0) {
-          const adj = reversed[idx - 1];
-          const m2 = adj.match(CURRENCY_AMOUNT);
-          if (m2) { const a = parseAmt(m2[1]); if (a > 0) return a; }
-        }
-      }
+    // Amount on the very next line (e.g., keyword on one line, value below)
+    if (i + 1 < lines.length) {
+      const nextAmt = amountFromLine(lines[i + 1]);
+      if (nextAmt > 0) return nextAmt;
+    }
+
+    // Amount on the previous line (uncommon, but some receipts print value above label)
+    if (i - 1 >= 0) {
+      const prevAmt = amountFromLine(lines[i - 1]);
+      if (prevAmt > 0) return prevAmt;
     }
   }
 
-  // 2. Total keyword line, any amount (no currency prefix needed)
-  for (const kw of TOTAL_KEYWORDS_LIST) {
-    for (const line of reversed) {
-      if (kw.test(line)) {
-        const m = line.match(ANY_AMOUNT);
-        if (m) { const a = parseAmt(m[1]); if (a > 0) return a; }
-
-        const idx = reversed.indexOf(line);
-        if (idx > 0) {
-          const adj = reversed[idx - 1];
-          const m2 = adj.match(ANY_AMOUNT);
-          if (m2) { const a = parseAmt(m2[1]); if (a > 0) return a; }
-        }
-      }
-    }
-  }
-
-  // 3. Largest currency-prefixed amount in the document
+  // Fallback 1: largest currency-prefixed amount in the whole document
   let maxAmount = 0;
-  for (const line of reversed) {
-    const hits = line.matchAll(
+  for (const line of lines) {
+    for (const hit of line.matchAll(
       /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/gi
-    );
-    for (const hit of hits) {
+    )) {
       const a = parseAmt(hit[1]);
       if (a > maxAmount) maxAmount = a;
     }
   }
   if (maxAmount > 0) return maxAmount;
 
-  // 4. Fallback — largest decimal number anywhere
-  for (const line of reversed) {
-    const hits = line.matchAll(/([\d,]+\.\d{2})\b/g);
-    for (const hit of hits) {
+  // Fallback 2: largest bare decimal number (2 d.p.) — lowest confidence
+  for (const line of lines) {
+    for (const hit of line.matchAll(/([\d,]+\.\d{2})\b/g)) {
       const a = parseAmt(hit[1]);
       if (a > maxAmount) maxAmount = a;
     }
@@ -163,18 +225,18 @@ function extractAmount(lines: string[]): number {
   return maxAmount;
 }
 
-// ─── Merchant Name ───────────────────────────────────────────────────────────
+// ─── Merchant Name ────────────────────────────────────────────────────────────
 
 const SKIP_PATTERNS = [
-  /^\d+$/, // pure numbers
-  /^(\+?6?0?\d[\s\-\d]{7,})$/, // phone numbers
-  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/, // dates
+  /^\d+$/,                                            // pure numbers
+  /^(\+?6?0?\d[\s\-\d]{7,})$/,                       // phone numbers
+  /^\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/,         // dates
   /^(receipt|invoice|bill|tax invoice|cashier|cashier\s+no|operator|terminal)/i,
   /^(tel|phone|fax|email|website|www|http)/i,
   /^(thank you|thank\s+u|please come again|have a nice day)/i,
   /^(gst|sst|reg|registration|no\.|ref|ref\.|reference)/i,
-  /^[*\-=_]{3,}$/, // separator lines
-  /^\s*$/, // empty
+  /^[*\-=_]{3,}$/,                                   // separator lines
+  /^\s*$/,                                            // empty
 ];
 
 function isMeaningfulLine(line: string): boolean {
@@ -187,7 +249,6 @@ function isMeaningfulLine(line: string): boolean {
 }
 
 function extractMerchantName(lines: string[]): string {
-  // Usually the first 1-3 meaningful lines are the merchant name
   const candidates: string[] = [];
   for (const line of lines.slice(0, Math.min(8, lines.length))) {
     const trimmed = line.trim();
@@ -201,8 +262,8 @@ function extractMerchantName(lines: string[]): string {
 
 // ─── Description ─────────────────────────────────────────────────────────────
 
-const TOTAL_KEYWORDS = /(?:total|amount|subtotal|tax|gst|sst|service charge|discount|cash|change|balance)/i;
-const ITEM_PATTERN = /^(.+?)\s+(?:x\s*\d+\s+)?(?:rm|myr|\$)?\s*[\d,]+\.\d{2}/i;
+const TOTAL_LINE_RE = /(?:total|amount|subtotal|tax|gst|sst|service charge|discount|cash|change|balance)/i;
+const ITEM_PATTERN  = /^(.+?)\s+(?:x\s*\d+\s+)?(?:rm|myr|\$)?\s*[\d,]+\.\d{2}/i;
 
 function extractDescription(lines: string[], merchantName: string): string {
   const items: string[] = [];
@@ -212,16 +273,13 @@ function extractDescription(lines: string[], merchantName: string): string {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Skip merchant name lines
     if (merchantName && trimmed.toLowerCase().includes(merchantName.toLowerCase().slice(0, 5))) {
       inItemSection = true;
       continue;
     }
 
-    // Stop at total section
-    if (TOTAL_KEYWORDS.test(trimmed) && trimmed.length < 30) break;
+    if (TOTAL_LINE_RE.test(trimmed) && trimmed.length < 30) break;
 
-    // Collect item lines
     if (inItemSection && isMeaningfulLine(trimmed)) {
       const itemMatch = trimmed.match(ITEM_PATTERN);
       if (itemMatch) {
@@ -232,13 +290,10 @@ function extractDescription(lines: string[], merchantName: string): string {
     }
   }
 
-  if (items.length > 0) {
-    return items.slice(0, 5).join(', ');
-  }
+  if (items.length > 0) return items.slice(0, 5).join(', ');
 
-  // Fallback: find any meaningful mid-section lines
   const midStart = Math.floor(lines.length * 0.2);
-  const midEnd = Math.floor(lines.length * 0.7);
+  const midEnd   = Math.floor(lines.length * 0.7);
   const midLines = lines.slice(midStart, midEnd).filter(isMeaningfulLine);
   return midLines.slice(0, 3).join(', ') || 'Purchase';
 }
@@ -251,13 +306,16 @@ export function parseReceiptText(ocrText: string): ParsedReceiptData {
     .map(l => l.trim())
     .filter(l => l.length > 0);
 
-  const date = extractDate(lines);
+  const date         = extractDate(lines);
   const merchantName = extractMerchantName(lines);
-  const amount = extractAmount(lines);
-  const description = extractDescription(lines, merchantName);
+  const amount       = extractAmount(lines);
+  const currency     = extractCurrency(lines, TOTAL_KEYWORDS);
+  const description  = extractDescription(lines, merchantName);
 
-  return { date, merchantName, description, amount };
+  return { date, merchantName, description, amount, currency };
 }
+
+// ─── Display Helpers ──────────────────────────────────────────────────────────
 
 function addThousandSeparators(numStr: string): string {
   const [integer, decimal] = numStr.split('.');
@@ -265,8 +323,9 @@ function addThousandSeparators(numStr: string): string {
   return decimal !== undefined ? `${formatted}.${decimal}` : formatted;
 }
 
-export function formatCurrency(amount: number): string {
-  return `RM ${addThousandSeparators(amount.toFixed(2))}`;
+export function formatCurrency(amount: number, currency = 'MYR'): string {
+  const prefix = currency === 'MYR' ? 'RM' : currency;
+  return `${prefix} ${addThousandSeparators(amount.toFixed(2))}`;
 }
 
 /** Format a number for display in an amount input field: 999,999,999.00 */

@@ -64,7 +64,7 @@ export async function callGoogleVisionOcr(
   return { ocrText, parsed };
 }
 
-const RECEIPT_PROMPT = `You are a receipt scanner. Analyze this receipt image and extract the key information.
+const RECEIPT_PROMPT = `You are a receipt scanner. Analyze this receipt image and extract key information by reading the field LABELS on the receipt.
 
 Return ONLY a valid JSON object — no explanation, no markdown, just the JSON:
 {
@@ -72,15 +72,17 @@ Return ONLY a valid JSON object — no explanation, no markdown, just the JSON:
   "merchantName": "business name",
   "description": "summary of items or transaction type",
   "amount": 0.00,
+  "currency": "MYR",
   "rawText": "full text from the receipt"
 }
 
 Rules:
-- date: the transaction/purchase date on this receipt in YYYY-MM-DD format. Look for labels like "Date", "Transaction Date", "Invoice Date". Do NOT use expiry dates, membership dates, or print dates. If unclear, use today's date.
-- merchantName: the store/restaurant name, usually at the top.
-- description: list of main items or a short transaction summary (max 100 chars).
-- amount: the TOTAL or GRAND TOTAL as a plain decimal number (no currency symbol). Look for currency signs RM, MYR, VND, THB, SGD, JPY, IDR, USD, $, ¥, ₫, ฿ to identify the correct amount field.
-- rawText: transcribe all visible text from the receipt.`;
+- date: Find the field labelled "Date", "Tarikh", "Transaction Date", "Invoice Date", "Purchase Date", or similar. Use the value next to or below that label in YYYY-MM-DD format. Do NOT use expiry dates, membership dates, card expiry, or print dates. If no date label is found, use today's date.
+- merchantName: the store, restaurant, or company name — usually the largest text at the top of the receipt.
+- description: a short comma-separated list of the main purchased items or a transaction summary (max 100 chars).
+- amount: find the field labelled "Total", "Grand Total", "Amount Due", "Amount Payable", "Jumlah", or "Jumlah Bayar". Use the number associated with that label — NOT subtotals, tax lines, or individual item prices. Return as a plain decimal number (no currency symbol).
+- currency: the currency code from the receipt (e.g. MYR, USD, SGD, THB, IDR, JPY). Look for the currency symbol next to the total amount (RM = MYR, $ = USD, ¥ = JPY, ฿ = THB, ₫ = VND). Default to MYR if not found.
+- rawText: transcribe all visible text from the receipt verbatim.`;
 
 // Call Claude API with receipt image — returns structured data directly
 export async function callClaudeOcr(
@@ -139,6 +141,7 @@ export async function callClaudeOcr(
         merchantName: extracted.merchantName || 'Unknown Merchant',
         description:  extracted.description  || '',
         amount:       parseFloat(String(extracted.amount)) || 0,
+        currency:     extracted.currency     || 'MYR',
       };
       return { ocrText: extracted.rawText || content, parsed };
     } catch {

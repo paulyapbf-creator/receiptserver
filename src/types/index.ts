@@ -60,6 +60,7 @@ export interface ParsedReceiptData {
   merchantName: string;
   description: string;
   amount: number;
+  currency?: string;   // e.g. "MYR", "USD", "SGD"
 }
 
 export type RootStackParamList = {

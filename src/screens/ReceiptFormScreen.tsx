@@ -61,6 +61,7 @@ export default function ReceiptFormScreen() {
   );
   const [imageUri] = useState(preFilledData?.imageUri ?? '');
   const [rawOcrText] = useState(preFilledData?.rawOcrText ?? '');
+  const [currency] = useState(preFilledData?.currency ?? 'MYR');
   const [showOcrText, setShowOcrText] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
 
@@ -280,7 +281,7 @@ export default function ReceiptFormScreen() {
 
           {/* Amount */}
           <TextInput
-            label="Amount (RM)"
+            label={`Amount (${currency})`}
             value={amountText}
             onChangeText={t => { setAmountText(t); setErrors(e => ({ ...e, amount: undefined })); }}
             mode="outlined"
