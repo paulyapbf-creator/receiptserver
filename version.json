@@ -1,6 +1,6 @@
 {
   "version": "1.0.4",
-  "releaseNotes": "Local APK build, APK hosted on server",
-  "downloadUrl": "",
+  "releaseNotes": "Improved OCR: label-aware date and amount extraction, currency detection",
+  "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/scanreceipt-v1.0.4.apk",
   "mandatory": false
 }

@@ -35,7 +35,9 @@ router.post('/upload', upload.single('apk'), (req: Request, res: Response) => {
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
-  const downloadUrl = `${req.protocol}://${req.get('host')}/downloads/${req.file.filename}`;
+  // Use X-Forwarded-Proto when behind a reverse proxy (e.g. Railway)
+  const proto = req.get('x-forwarded-proto') || req.protocol;
+  const downloadUrl = `${proto}://${req.get('host')}/downloads/${req.file.filename}`;
   res.json({ success: true, filename: req.file.filename, downloadUrl });
 });
 
