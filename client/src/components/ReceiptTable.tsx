@@ -8,8 +8,8 @@ interface Props {
   onRefresh: () => void;
 }
 
-function formatCurrency(n: number) {
-  return `RM ${n.toFixed(2)}`;
+function formatCurrency(n: number, currency = 'MYR') {
+  return `${currency} ${n.toFixed(2)}`;
 }
 
 function formatDate(iso: string) {
@@ -162,7 +162,7 @@ export default function ReceiptTable({ receipts, selected, onSelect, onRefresh }
                     <span className="truncate block">{r.description || '-'}</span>
                   </td>
                   <td className="td text-right font-semibold text-primary-800 whitespace-nowrap">
-                    {formatCurrency(r.amount)}
+                    {formatCurrency(r.amount, r.currency)}
                   </td>
                   <td className="td text-gray-400 text-xs whitespace-nowrap">
                     {new Date(r.syncedAt).toLocaleDateString()}

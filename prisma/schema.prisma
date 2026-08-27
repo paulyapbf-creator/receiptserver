@@ -14,6 +14,7 @@ model Receipt {
   merchantName    String
   description     String @default("")
   amount          Float  @default(0)
+  currency        String @default("MYR")
   imageUri        String @default("")
   rawOcrText      String @default("")
   syncedAt        String

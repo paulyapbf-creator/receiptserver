@@ -8,8 +8,8 @@ interface Props {
   onDeleted: (id: number) => void;
 }
 
-function formatCurrency(n: number) {
-  return `RM ${n.toFixed(2)}`;
+function formatCurrency(n: number, currency = 'MYR') {
+  return `${currency} ${n.toFixed(2)}`;
 }
 
 function formatDate(iso: string) {
@@ -52,7 +52,7 @@ export default function ReceiptDetail({ receipt, onClose, onDeleted }: Props) {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Amount highlight */}
         <div className="text-center py-4 bg-primary-50 rounded-lg">
-          <p className="text-3xl font-bold text-primary-800">{formatCurrency(receipt.amount)}</p>
+          <p className="text-3xl font-bold text-primary-800">{formatCurrency(receipt.amount, receipt.currency)}</p>
           <p className="text-sm text-gray-500 mt-1">{receipt.merchantName}</p>
         </div>
 
@@ -72,6 +72,10 @@ export default function ReceiptDetail({ receipt, onClose, onDeleted }: Props) {
               <dd className="text-gray-900 text-right">{receipt.description}</dd>
             </div>
           )}
+          <div className="flex justify-between py-1.5 border-b border-gray-100">
+            <dt className="text-gray-500 font-medium">Currency</dt>
+            <dd className="text-gray-900 font-mono">{receipt.currency || 'MYR'}</dd>
+          </div>
           <div className="flex justify-between py-1.5 border-b border-gray-100">
             <dt className="text-gray-500 font-medium">Synced At</dt>
             <dd className="text-gray-500 text-xs text-right">{formatDateTime(receipt.syncedAt)}</dd>

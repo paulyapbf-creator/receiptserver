@@ -7,6 +7,16 @@ import receiptsRouter from './routes/receipts';
 import versionRouter from './routes/version';
 import statsRouter from './routes/stats';
 import downloadsRouter from './routes/downloads';
+import prisma from './db';
+
+// Run startup migrations for columns added after initial deploy
+(async () => {
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "Receipt" ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'MYR'`
+    );
+  } catch { /* column already exists */ }
+})();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;

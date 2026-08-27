@@ -5,6 +5,7 @@ export interface ServerReceipt {
   merchantName: string;
   description: string;
   amount: number;
+  currency: string;
   imageUri: string;
   rawOcrText: string;
   syncedAt: string;

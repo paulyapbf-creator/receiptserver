@@ -4,6 +4,7 @@ export interface MobileReceipt {
   merchantName: string;
   description: string;
   amount: number;
+  currency: string;
   imageUri: string;
   rawOcrText: string;
   createdAt: string;

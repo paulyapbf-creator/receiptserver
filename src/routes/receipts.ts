@@ -27,6 +27,7 @@ router.post('/sync', async (req: Request, res: Response) => {
           merchantName:    item.merchantName,
           description:     item.description  || '',
           amount:          item.amount        ?? 0,
+          currency:        item.currency      || 'MYR',
           imageUri:        item.imageUri      || '',
           rawOcrText:      item.rawOcrText    || '',
           syncedAt:        now,
