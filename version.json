@@ -1,6 +1,6 @@
 {
-  "version": "1.0.4",
-  "releaseNotes": "Improved OCR: label-aware date and amount extraction, currency detection",
-  "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/scanreceipt-v1.0.4.apk",
+  "version": "1.0.5",
+  "releaseNotes": "Transaction category: auto-detected from OCR (Food, Hotel, Transport, Groceries, etc.)",
+  "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/scanreceipt-v1.0.5.apk",
   "mandatory": false
 }
