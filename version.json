@@ -1,6 +1,6 @@
 {
-  "version": "1.0.3",
-  "releaseNotes": "Customer assignment, amount formatting, currency-aware OCR",
-  "downloadUrl": "https://expo.dev/artifacts/eas/F3apOhK_M_JPnGyA42nxQkw34Fx8RKmIkse8x1lArto.apk",
+  "version": "1.0.4",
+  "releaseNotes": "Local APK build, APK hosted on server",
+  "downloadUrl": "",
   "mandatory": false
 }
