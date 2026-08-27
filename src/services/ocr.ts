@@ -90,7 +90,7 @@ Rules:
     "Utilities & Bills" — electricity, water, internet, phone bill, telco
     "Business & Services" — courier, printing, repair, bank, insurance, laundry
     "Other" — anything that does not fit the above
-- amount: find the field labelled "Total", "Grand Total", "Amount Due", "Amount Payable", "Jumlah", or "Jumlah Bayar". Use the number associated with that label — NOT subtotals, tax lines, or individual item prices. Return as a plain decimal number (no currency symbol).
+- amount: find the FINAL total — the field labelled "Grand Total", "Total Amount", "Amount Due", "Amount Payable", "Total Bill", "Jumlah Bayar", "Amaun Bayar", or simply "TOTAL" at the bottom of the receipt. This is the final amount the customer paid, AFTER tax and discounts. Do NOT use: Subtotal, Sub-total, individual item prices, tax amount alone, or change given. Return as a plain decimal number (no currency symbol).
 - currency: the currency code (MYR, USD, SGD, THB, IDR, JPY). Look for symbol next to total (RM=MYR, $=USD, ¥=JPY, ฿=THB, ₫=VND). Default MYR.
 - rawText: transcribe all visible text from the receipt verbatim.`;
 

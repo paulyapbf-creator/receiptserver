@@ -150,12 +150,33 @@ function extractCurrency(lines: string[], totalKeywords: RegExp[]): string {
 
 // ─── Amount Parsing ───────────────────────────────────────────────────────────
 
+// Tier 1 — unambiguous "final total" labels (highest priority)
+const TOTAL_T1: RegExp[] = [
+  /grand\s+total/i,
+  /total\s+amount/i,
+  /amount\s+due/i,
+  /amount\s+payable/i,
+  /amount\s+paid/i,
+  /total\s+to\s+pay/i,
+  /total\s+due/i,
+  /total\s+bill/i,
+  /bill\s+total/i,
+  /net\s+total/i,
+  /nett\s+total/i,
+  /jumlah\s+keseluruhan/i,
+  /jumlah\s+bayar/i,
+  /jumlah\s+dibayar/i,
+  /amaun\s+bayar/i,
+  /amaun\s+terimaan/i,
+  /bayaran\s+akhir/i,
+  /total\s+sales/i,
+];
+
+// For extractCurrency — combined list (all tiers)
 const TOTAL_KEYWORDS: RegExp[] = [
-  /grand\s+total/i, /total\s+amount/i, /amount\s+due/i,
-  /amount\s+paid/i, /jumlah\s+bayar/i, /jumlah\s+keseluruhan/i,
-  /^total$/i, /net\s+total/i, /nett\s+total/i,
-  /sub\s*total/i, /subtotal/i,
-  /total\s+to\s+pay/i, /amount\s+payable/i,
+  ...TOTAL_T1,
+  /\btotal\b/i,
+  /sub\s*total/i,
 ];
 
 function parseAmt(s: string): number {
@@ -171,7 +192,7 @@ function amountFromLine(line: string): number {
     const a = parseAmt(withCurrency[1]);
     if (a > 0) return a;
   }
-  // Bare decimal number: 45.50
+  // Bare decimal (exactly 2 d.p.): 45.50
   const bare = line.match(/\b([\d,]+\.\d{2})\b/);
   if (bare) {
     const a = parseAmt(bare[1]);
@@ -180,34 +201,59 @@ function amountFromLine(line: string): number {
   return 0;
 }
 
-function extractAmount(lines: string[]): number {
-  // Scan bottom-to-top — totals are usually near the end of a receipt
+// Search bottom-to-top for a keyword match and return its associated amount
+function scanForTotal(lines: string[], keywords: RegExp[]): number {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (!TOTAL_KEYWORDS.some(kw => kw.test(line))) continue;
+    if (!keywords.some(kw => kw.test(line))) continue;
 
-    // Amount on the same line as the keyword (e.g., "TOTAL    RM 45.50")
+    // Amount on the same line (e.g., "TOTAL    RM 45.50")
     const sameLineAmt = amountFromLine(line);
     if (sameLineAmt > 0) return sameLineAmt;
 
-    // Amount on the very next line (e.g., keyword on one line, value below)
+    // Amount on the next line below
     if (i + 1 < lines.length) {
-      const nextAmt = amountFromLine(lines[i + 1]);
-      if (nextAmt > 0) return nextAmt;
+      const a = amountFromLine(lines[i + 1]);
+      if (a > 0) return a;
     }
 
-    // Amount on the previous line (uncommon, but some receipts print value above label)
-    if (i - 1 >= 0) {
-      const prevAmt = amountFromLine(lines[i - 1]);
-      if (prevAmt > 0) return prevAmt;
+    // Amount on the line above (uncommon)
+    if (i > 0) {
+      const a = amountFromLine(lines[i - 1]);
+      if (a > 0) return a;
     }
   }
+  return 0;
+}
 
-  // Fallback 1: largest currency-prefixed amount in the whole document
+function extractAmount(lines: string[]): number {
+  // Tier 1: explicit grand/final total labels
+  const t1 = scanForTotal(lines, TOTAL_T1);
+  if (t1 > 0) return t1;
+
+  // Tier 2: plain "total" — but NOT subtotal lines
+  const plainTotalLines = lines.map((line, i) => ({ line, i })).filter(({ line }) => {
+    const l = line.toLowerCase();
+    return /\btotal\b/.test(l) && !/\bsub/.test(l);
+  });
+  if (plainTotalLines.length > 0) {
+    // Pick the bottommost plain-total line
+    const { line, i } = plainTotalLines[plainTotalLines.length - 1];
+    const a = amountFromLine(line)
+      || (i + 1 < lines.length ? amountFromLine(lines[i + 1]) : 0)
+      || (i > 0 ? amountFromLine(lines[i - 1]) : 0);
+    if (a > 0) return a;
+  }
+
+  // Tier 3: subtotal (last resort before fallback)
+  const t3 = scanForTotal(lines, [/sub\s*total/i, /subtotal/i]);
+  if (t3 > 0) return t3;
+
+  // Fallback 1: largest currency-prefixed amount in the document
   let maxAmount = 0;
   for (const line of lines) {
     for (const hit of line.matchAll(
-      /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.?\d{0,2})/gi
+      /(?:rm|myr|vnd|thb|sgd|jpy|idr|usd|\$|€|£|¥|₫|฿)\s*([\d,]+\.\d{1,2})/gi
     )) {
       const a = parseAmt(hit[1]);
       if (a > maxAmount) maxAmount = a;
@@ -215,7 +261,7 @@ function extractAmount(lines: string[]): number {
   }
   if (maxAmount > 0) return maxAmount;
 
-  // Fallback 2: largest bare decimal number (2 d.p.) — lowest confidence
+  // Fallback 2: largest bare decimal (2 d.p.)
   for (const line of lines) {
     for (const hit of line.matchAll(/([\d,]+\.\d{2})\b/g)) {
       const a = parseAmt(hit[1]);
