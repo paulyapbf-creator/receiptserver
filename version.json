@@ -1,6 +1,6 @@
 {
-  "version": "1.0.6",
-  "releaseNotes": "Fix: amount now correctly reads Grand Total, not subtotal",
-  "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/scanreceipt-v1.0.6.apk",
+  "version": "1.0.7",
+  "releaseNotes": "Currency selector: choose from 14 currencies on amount field",
+  "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/app-release.apk",
   "mandatory": false
 }
