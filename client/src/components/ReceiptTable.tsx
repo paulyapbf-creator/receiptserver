@@ -21,7 +21,7 @@ function formatDate(iso: string) {
 const COLS: { key: SortField; label: string; align?: string }[] = [
   { key: 'date',        label: 'Date' },
   { key: 'merchantName',label: 'Merchant' },
-  { key: 'description', label: 'Description' },
+  { key: 'description', label: 'Category' },
   { key: 'amount',      label: 'Amount', align: 'right' },
   { key: 'syncedAt',    label: 'Synced At' },
 ];

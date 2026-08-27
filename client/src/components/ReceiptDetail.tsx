@@ -67,9 +67,9 @@ export default function ReceiptDetail({ receipt, onClose, onDeleted }: Props) {
             <dd className="text-gray-900 text-right max-w-[60%]">{receipt.merchantName}</dd>
           </div>
           {receipt.description && (
-            <div className="py-1.5 border-b border-gray-100">
-              <dt className="text-gray-500 font-medium mb-1">Description</dt>
-              <dd className="text-gray-900">{receipt.description}</dd>
+            <div className="flex justify-between py-1.5 border-b border-gray-100">
+              <dt className="text-gray-500 font-medium">Category</dt>
+              <dd className="text-gray-900 text-right">{receipt.description}</dd>
             </div>
           )}
           <div className="flex justify-between py-1.5 border-b border-gray-100">
