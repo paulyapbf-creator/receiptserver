@@ -1,6 +1,6 @@
 {
-  "version": "1.0.7",
-  "releaseNotes": "Currency selector: choose from 14 currencies on amount field",
+  "version": "1.0.8",
+  "releaseNotes": "Fix: update now opens browser to download APK directly",
   "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/app-release.apk",
   "mandatory": false
 }
