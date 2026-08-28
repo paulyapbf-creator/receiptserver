@@ -1,6 +1,6 @@
 {
-  "version": "1.0.8",
-  "releaseNotes": "Fix: update now opens browser to download APK directly",
+  "version": "1.0.9",
+  "releaseNotes": "Fix: amount extraction now correctly reads VND and other whole-number currencies",
   "downloadUrl": "https://receiptserver-production.up.railway.app/downloads/app-release.apk",
   "mandatory": false
 }
