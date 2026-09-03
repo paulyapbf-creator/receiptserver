@@ -16,6 +16,11 @@ import prisma from './db';
       `ALTER TABLE "Receipt" ADD COLUMN "currency" TEXT NOT NULL DEFAULT 'MYR'`
     );
   } catch { /* column already exists */ }
+  try {
+    await prisma.$executeRawUnsafe(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "Receipt_sourceId_key" ON "Receipt"("sourceId")`
+    );
+  } catch { /* index already exists */ }
 })();
 
 const app = express();

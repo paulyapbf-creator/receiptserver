@@ -9,7 +9,7 @@ generator client {
 
 model Receipt {
   id              Int    @id @default(autoincrement())
-  sourceId        Int    @default(0)
+  sourceId        Int    @unique @default(0)
   date            String
   merchantName    String
   description     String @default("")

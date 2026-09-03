@@ -18,30 +18,49 @@ router.post('/sync', async (req: Request, res: Response) => {
 
   const valid = body.receipts.filter((r: MobileReceipt) => r.date && r.merchantName);
 
-  await prisma.$transaction(
-    valid.map((item: MobileReceipt) =>
-      prisma.receipt.create({
-        data: {
-          sourceId:        item.id ?? 0,
-          date:            item.date,
-          merchantName:    item.merchantName,
-          description:     item.description  || '',
-          amount:          item.amount        ?? 0,
-          currency:        item.currency      || 'MYR',
-          imageUri:        item.imageUri      || '',
-          rawOcrText:      item.rawOcrText    || '',
-          syncedAt:        now,
-          deviceCreatedAt: item.createdAt     || '',
-        },
-      })
-    )
-  );
+  try {
+    // Upsert by sourceId so repeated syncs don't create duplicates
+    await prisma.$transaction(
+      valid.map((item: MobileReceipt) =>
+        prisma.receipt.upsert({
+          where:  { sourceId: item.id ?? 0 },
+          update: {
+            date:            item.date,
+            merchantName:    item.merchantName,
+            description:     item.description  || '',
+            amount:          item.amount        ?? 0,
+            currency:        item.currency      || 'MYR',
+            imageUri:        item.imageUri      || '',
+            rawOcrText:      item.rawOcrText    || '',
+            syncedAt:        now,
+            deviceCreatedAt: item.createdAt     || '',
+          },
+          create: {
+            sourceId:        item.id ?? 0,
+            date:            item.date,
+            merchantName:    item.merchantName,
+            description:     item.description  || '',
+            amount:          item.amount        ?? 0,
+            currency:        item.currency      || 'MYR',
+            imageUri:        item.imageUri      || '',
+            rawOcrText:      item.rawOcrText    || '',
+            syncedAt:        now,
+            deviceCreatedAt: item.createdAt     || '',
+          },
+        })
+      )
+    );
 
-  await prisma.syncLog.create({
-    data: { syncedAt: now, count: valid.length, clientVersion },
-  });
+    await prisma.syncLog.create({
+      data: { syncedAt: now, count: valid.length, clientVersion },
+    });
 
-  res.json({ success: true, message: `${valid.length} receipts synced.`, syncedAt: now });
+    res.json({ success: true, message: `${valid.length} receipts synced.`, syncedAt: now });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('Sync error:', message);
+    res.status(500).json({ error: 'Sync failed', detail: message });
+  }
 });
 
 // ─── GET /api/receipts ────────────────────────────────────────────────────────
